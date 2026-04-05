@@ -1,4 +1,5 @@
 import { atom, computed } from "nanostores";
+import type { ScanSession as IPCScanSession } from "../lib/ipc";
 
 export interface ScanResult {
   id: string;
@@ -98,4 +99,21 @@ export function cancelScan() {
 
 export function clearCurrentScan() {
   $currentScan.set(null);
+}
+
+export function syncScanSession(session: IPCScanSession) {
+  const nextSession: ScanSession = {
+    ...session,
+    startTime: session.startTime ? new Date(session.startTime) : undefined,
+    endTime: session.endTime ? new Date(session.endTime) : undefined,
+  };
+
+  $currentScan.set(nextSession);
+
+  if (
+    nextSession.status === "completed" &&
+    !$scanHistory.get().some((scan) => scan.id === nextSession.id)
+  ) {
+    $scanHistory.set([...$scanHistory.get(), nextSession]);
+  }
 }

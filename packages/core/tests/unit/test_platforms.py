@@ -16,12 +16,12 @@ def test_tool_name_enum():
 
 def test_get_tool_paths_vscode_windows():
     with patch("platform.system", return_value="Windows"), \
-         patch.dict("os.environ", {"APPDATA": "C:\Users\Test\AppData\Roaming", "LOCALAPPDATA": "C:\Users\Test\AppData\Local"}):
+         patch.dict("os.environ", {"APPDATA": r"C:\Users\Test\AppData\Roaming", "LOCALAPPDATA": r"C:\Users\Test\AppData\Local"}):
         paths = get_tool_paths(ToolName.VSCODE)
         expected = [
-            Path("C:\Users\Test\AppData\Roaming\Code\User\workspaceStorage"),
-            Path("C:\Users\Test\AppData\Roaming\Code\CachedData"),
-            Path("C:\Users\Test\AppData\Local\Microsoft\VS Code\Cache"),
+            Path(r"C:\Users\Test\AppData\Roaming\Code\User\workspaceStorage"),
+            Path(r"C:\Users\Test\AppData\Roaming\Code\CachedData"),
+            Path(r"C:\Users\Test\AppData\Local\Microsoft\VS Code\Cache"),
         ]
         assert paths == expected
 

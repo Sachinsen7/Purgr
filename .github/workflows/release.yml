@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python-bin: python
+            pyinstaller-target: devsweep-sidecar.exe
+          - os: macos-latest
+            python-bin: python3
+            pyinstaller-target: devsweep-sidecar
+          - os: ubuntu-latest
+            python-bin: python3
+            pyinstaller-target: devsweep-sidecar
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install core build dependencies
+        working-directory: packages/core
+        run: |
+          ${{ matrix.python-bin }} -m pip install --upgrade pip
+          ${{ matrix.python-bin }} -m pip install -e .[dev]
+
+      - name: Build Python sidecar
+        working-directory: packages/core
+        run: |
+          ${{ matrix.python-bin }} scripts/build_sidecar.py
+
+      - name: Install desktop dependencies
+        working-directory: packages/desktop
+        run: npm install
+
+      - name: Place sidecar binary for Tauri bundle
+        shell: bash
+        run: |
+          mkdir -p packages/desktop/src-tauri/bin
+          cp "packages/core/dist/${{ matrix.pyinstaller-target }}" "packages/desktop/src-tauri/bin/${{ matrix.pyinstaller-target }}"
+
+      - name: Build Tauri bundle
+        working-directory: packages/desktop
+        run: npm run tauri:build
+
+      - name: Upload bundled artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-${{ matrix.os }}
+          path: |
+            packages/desktop/src-tauri/target/release/bundle/**
+            packages/core/dist/${{ matrix.pyinstaller-target }}

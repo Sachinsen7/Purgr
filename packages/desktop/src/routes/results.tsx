@@ -1,11 +1,12 @@
-import { Component, createSignal, For, Show, createEffect } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { Component, createSignal, For, Show } from "solid-js";
 import { Card, CardBody, CardHeader } from "../ui/Card";
 import { Button } from "../ui/Button";
-import { $currentScan, $scanHistory, completeScan } from "../stores/scan";
-import { setCurrentView } from "../stores/ui";
+import { $currentScan, $scanHistory } from "../stores/scan";
 import { IPC } from "../lib/ipc";
 
 const Results: Component = () => {
+  const navigate = useNavigate();
   const [selectedResults, setSelectedResults] = createSignal<string[]>([]);
   const [filter, setFilter] = createSignal<"all" | "keep" | "delete" | "review">("all");
 
@@ -124,7 +125,7 @@ const Results: Component = () => {
         </div>
         <Button
           variant="outline"
-          onClick={() => setCurrentView("dashboard")}
+          onClick={() => navigate("/dashboard")}
         >
           Back to Dashboard
         </Button>
@@ -142,7 +143,7 @@ const Results: Component = () => {
                 <h3 class="mt-2 text-sm font-medium text-gray-900">No scan results</h3>
                 <p class="mt-1 text-sm text-gray-500">Run a scan to see files that can be cleaned up.</p>
                 <div class="mt-6">
-                  <Button onClick={() => setCurrentView("scan")}>
+                  <Button onClick={() => navigate("/scan")}>
                     Start New Scan
                   </Button>
                 </div>
@@ -186,7 +187,17 @@ const Results: Component = () => {
               <div class="flex items-center space-x-4">
                 <select
                   value={filter()}
-                  onChange={(e) => setFilter(e.currentTarget.value as any)}
+                  onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    if (
+                      value === "all" ||
+                      value === "keep" ||
+                      value === "delete" ||
+                      value === "review"
+                    ) {
+                      setFilter(value);
+                    }
+                  }}
                   class="rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                 >
                   <option value="all">All Results</option>

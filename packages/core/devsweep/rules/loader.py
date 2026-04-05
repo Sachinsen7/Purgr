@@ -43,10 +43,11 @@ def get_matching_rules(
     """
     import re
     matches = []
+    normalized_path = str(file_path).replace("\\", "/")
     
     for rule in tool_rules.rules:
         try:
-            if re.search(rule.pattern, str(file_path)):
+            if re.search(rule.pattern, normalized_path):
                 matches.append((
                     rule.description,
                     rule.score_adjustment,

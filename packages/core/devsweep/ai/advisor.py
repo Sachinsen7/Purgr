@@ -23,25 +23,20 @@ class AIAdvisor:
 
     async def get_advice(self, item: ScoredItem) -> AIAdvice:
         """Get AI advice for a scored item."""
-        # Get similar patterns from memory
-        similar_patterns = await self.memory.get_similar_patterns(str(item.entry.path))
-
-        # Prepare context
-        context = {
-            "entry": item.entry,
-            "classification": item.classification,
-            "total_score": item.total_score,
-            "signals": item.signals,
-            "rules": [],  # Would be populated if we had rule matches
-            "memory_patterns": [
-                {"action": p.action, "reason": p.reason} for p in similar_patterns
-            ],
-        }
-
-        # Render prompt
-        prompt = CLEANUP_ADVICE_TEMPLATE.render(**context)
-
         try:
+            similar_patterns = await self.memory.get_similar_patterns(str(item.entry.path))
+            context = {
+                "entry": item.entry,
+                "classification": item.classification,
+                "total_score": item.total_score,
+                "signals": item.signals,
+                "rules": [],
+                "memory_patterns": [
+                    {"action": p.action, "reason": p.reason} for p in similar_patterns
+                ],
+            }
+            prompt = CLEANUP_ADVICE_TEMPLATE.render(**context)
+
             # Call Ollama via litellm
             response = completion(
                 model="ollama/llama2",  # Assuming llama2 is available
@@ -70,7 +65,7 @@ class AIAdvisor:
         text = response_text.lower().strip()
 
         # Extract recommendation
-        if "delete" in text and "keep" not in text:
+        if ("delete" in text or "delet" in text) and "keep" not in text:
             recommendation = "delete"
         elif "keep" in text and "delete" not in text:
             recommendation = "keep"
@@ -146,7 +141,7 @@ class AIAdvisor:
             recommendation=recommendation,
             confidence=confidence,
             explanation=explanation,
-            reasoning_signals=["fallback_rules"],
+            reasoning_signals=["fallback", "fallback_rules"],
             similar_patterns=[],
         )
 
@@ -164,7 +159,10 @@ class AIAdvisor:
             "user_reason": user_reason,
             "classification": item.classification,
             "total_score": item.total_score,
-            "signals": item.signals,
+            "signals": {
+                signal_name: signal.model_dump()
+                for signal_name, signal in item.signals.items()
+            },
         }
 
         prompt = LEARN_PATTERN_TEMPLATE.render(**context)
@@ -184,10 +182,10 @@ class AIAdvisor:
             try:
                 pattern_data = json.loads(result_text)
                 await self.memory.store_pattern(
-                    pattern=pattern_data.get("pattern", ".*"),
-                    action=pattern_data.get("action", user_action),
-                    confidence=min(pattern_data.get("confidence", 0.5), 1.0),
-                    reason=pattern_data.get("reason", user_reason),
+                    pattern_data.get("pattern", ".*"),
+                    pattern_data.get("action", user_action),
+                    min(pattern_data.get("confidence", 0.5), 1.0),
+                    pattern_data.get("reason", user_reason),
                 )
             except json.JSONDecodeError:
                 # If JSON parsing fails, create a simple pattern

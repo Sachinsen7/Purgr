@@ -2,10 +2,11 @@
   "name": "devsweep-desktop",
   "version": "0.1.0",
   "description": "Desktop UI for DevSweep",
+  "type": "module",
   "scripts": {
-    "build": "solid-start build",
-    "dev": "solid-start dev",
-    "start": "solid-start start",
+    "build": "vinxi build",
+    "dev": "vinxi dev",
+    "start": "vinxi start",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
@@ -18,9 +19,9 @@
     "@tauri-apps/plugin-shell": "^2.0.0-rc.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "nanostores": "^0.10.4",
-    "solid-js": "^1.8.22",
-    "solid-start": "^1.0.2",
+    "nanostores": "^1.0.1",
+    "solid-js": "^1.9.9",
+    "@solidjs/start": "^1.1.7",
     "tailwind-merge": "^2.4.0",
     "zod": "^3.23.8"
   },
@@ -36,8 +37,9 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8",
-    "vite-plugin-solid": "^2.10.2"
+    "vinxi": "^0.5.7",
+    "vite": "^6.4.1",
+    "vite-plugin-solid": "^2.11.11"
   },
   "engines": {
     "node": ">=18.0.0"

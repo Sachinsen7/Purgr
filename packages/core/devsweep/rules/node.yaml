@@ -1,20 +1,20 @@
 tool: node
 rules:
-  - pattern: "node_modules/.*"
+  - pattern: 'node_modules/.*'
     description: "Node.js dependencies (can be large)"
     score_adjustment: 10
-  - pattern: "npm-cache/.*"
+  - pattern: 'npm-cache/.*'
     description: "NPM cache directory"
     score_adjustment: 25
-  - pattern: "\.npm/.*"
+  - pattern: '\.npm/.*'
     description: "NPM internal cache"
     score_adjustment: 20
-  - pattern: ".*\.tgz$"
+  - pattern: '.*\.tgz$'
     description: "NPM package archives"
     score_adjustment: 15
-  - pattern: "yarn/cache/.*"
+  - pattern: 'yarn/cache/.*'
     description: "Yarn cache directory"
     score_adjustment: 25
-  - pattern: "\.yarn/.*"
+  - pattern: '\.yarn/.*'
     description: "Yarn internal files"
     score_adjustment: 20

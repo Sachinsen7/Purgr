@@ -1,10 +1,11 @@
+import { useNavigate } from "@solidjs/router";
 import { Component, For, Show } from "solid-js";
 import { Card, CardBody, CardHeader } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { $scanHistory, $currentScan, $isScanning } from "../stores/scan";
-import { $currentView, setCurrentView } from "../stores/ui";
 
 const Dashboard: Component = () => {
+  const navigate = useNavigate();
   const scanHistory = $scanHistory;
   const currentScan = $currentScan;
   const isScanning = $isScanning;
@@ -30,7 +31,7 @@ const Dashboard: Component = () => {
         </div>
         <Button
           variant="primary"
-          onClick={() => setCurrentView("scan")}
+          onClick={() => navigate("/scan")}
           disabled={isScanning()}
         >
           Start New Scan
@@ -139,7 +140,7 @@ const Dashboard: Component = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setCurrentView("results")}
+              onClick={() => navigate("/results")}
             >
               View All
             </Button>
@@ -171,7 +172,7 @@ const Dashboard: Component = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setCurrentView("results")}
+                        onClick={() => navigate("/results")}
                       >
                         View
                       </Button>

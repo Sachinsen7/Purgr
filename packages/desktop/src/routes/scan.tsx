@@ -1,35 +1,60 @@
-import { Component, createSignal, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
+import { Component, createSignal, onCleanup, Show } from "solid-js";
 import { Card, CardBody, CardHeader } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { $currentScan, $isScanning, startScan, clearCurrentScan } from "../stores/scan";
-import { setCurrentView } from "../stores/ui";
+import { $currentScan, $isScanning, clearCurrentScan, syncScanSession } from "../stores/scan";
 import { IPC } from "../lib/ipc";
 
 const Scan: Component = () => {
+  const navigate = useNavigate();
   const [rootPath, setRootPath] = createSignal("");
   const [includeHidden, setIncludeHidden] = createSignal(false);
   const [maxDepth, setMaxDepth] = createSignal<number | undefined>();
+  let pollingHandle: number | undefined;
 
   const currentScan = $currentScan;
   const isScanning = $isScanning;
+
+  const stopPolling = () => {
+    if (pollingHandle !== undefined) {
+      window.clearInterval(pollingHandle);
+      pollingHandle = undefined;
+    }
+  };
+
+  onCleanup(stopPolling);
+
+  const beginPolling = (scanId: string) => {
+    stopPolling();
+    pollingHandle = window.setInterval(async () => {
+      try {
+        const status = await IPC.getScanStatus(scanId);
+        syncScanSession(status);
+        if (status.status === "completed") {
+          stopPolling();
+          navigate("/results");
+        }
+        if (status.status === "error") {
+          stopPolling();
+        }
+      } catch (error) {
+        console.error("Failed to poll scan status:", error);
+        stopPolling();
+      }
+    }, 750);
+  };
 
   const handleStartScan = async () => {
     if (!rootPath()) return;
 
     try {
-      startScan(rootPath());
       const scanId = await IPC.startScan({
         rootPath: rootPath(),
         includeHidden: includeHidden(),
         maxDepth: maxDepth(),
       });
-
-      // In a real implementation, we'd set up polling for progress updates
-      // For now, we'll just navigate to results
-      setTimeout(() => {
-        setCurrentView("results");
-      }, 1000);
+      beginPolling(scanId);
     } catch (error) {
       console.error("Failed to start scan:", error);
       clearCurrentScan();
@@ -40,6 +65,7 @@ const Scan: Component = () => {
     if (currentScan()) {
       try {
         await IPC.stopScan(currentScan()!.id);
+        stopPolling();
         clearCurrentScan();
       } catch (error) {
         console.error("Failed to stop scan:", error);
@@ -57,7 +83,7 @@ const Scan: Component = () => {
         </div>
         <Button
           variant="outline"
-          onClick={() => setCurrentView("dashboard")}
+          onClick={() => navigate("/dashboard")}
         >
           Back to Dashboard
         </Button>
@@ -109,7 +135,7 @@ const Scan: Component = () => {
             <div class="space-y-6">
               <Input
                 label="Directory to Scan"
-                placeholder="e.g., C:\Users\username\Documents\Projects or /home/user/projects"
+                placeholder="e.g., C:\\Users\\username\\Documents\\Projects or /home/user/projects"
                 value={rootPath()}
                 onChange={setRootPath}
               />
@@ -142,7 +168,7 @@ const Scan: Component = () => {
               <div class="flex justify-end space-x-3">
                 <Button
                   variant="secondary"
-                  onClick={() => setCurrentView("dashboard")}
+                  onClick={() => navigate("/dashboard")}
                 >
                   Cancel
                 </Button>

@@ -1,60 +1,50 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 
 from ..config.settings import get_settings
 
 
 def get_database_url() -> str:
-    """Get the database URL from settings or use default SQLite path."""
+    """Return the configured async database URL."""
     settings = get_settings()
-    
-    # Use user data directory for database
-    if hasattr(settings, 'database_path'):
-        db_path = Path(settings.database_path)
-    else:
-        # Default to user data directory
-        import os
-        if os.name == 'nt':  # Windows
-            data_dir = Path(os.environ.get('APPDATA', '~/AppData/Roaming')) / 'DevSweep'
-        else:  # Unix-like
-            data_dir = Path.home() / '.local' / 'share' / 'devsweep'
-        
-        data_dir.mkdir(parents=True, exist_ok=True)
-        db_path = data_dir / 'devsweep.db'
-    
+    db_path = Path(settings.database_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     return f"sqlite+aiosqlite:///{db_path}"
 
 
-# Create async engine
 engine = create_async_engine(
     get_database_url(),
-    echo=False,  # Set to True for SQL logging during development
+    echo=False,
     future=True,
 )
 
-
-# Create async session factory
-async_session = sessionmaker(
-    engine,
+AsyncSessionFactory = async_sessionmaker(
+    bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )
 
 
-async def create_db_and_tables():
-    """Create database tables if they don't exist."""
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
+async def create_db_and_tables() -> None:
+    """Create database tables if they do not already exist."""
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
 
 
+@asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency for FastAPI to get async database session."""
-    async with async_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    """Return an async database session as a context manager."""
+    async with AsyncSessionFactory() as session:
+        yield session
+
+
+async def session_dependency() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency wrapper around the session context manager."""
+    async with get_session() as session:
+        yield session

@@ -69,7 +69,7 @@ def get_tool_paths(tool: ToolName) -> List[Path]:
                 home / ".npm" / "_cacache",
             ]
 
-    else:  # Linux and others
+    elif system == "Linux":
         if tool == ToolName.VSCODE:
             return [
                 home / ".vscode" / "extensions",

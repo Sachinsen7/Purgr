@@ -1,22 +1,28 @@
 from typing import List
 
+from .. import signals
 from ..models import ScanEntry, ScoredItem, SignalResult
-from ..signals import (
-    calculate_age_signal,
-    calculate_version_signal,
-    calculate_process_signal,
-    calculate_project_signal,
-)
+
+
+def _coerce_signal_result(result: object) -> SignalResult:
+    if isinstance(result, SignalResult):
+        return result
+
+    score = getattr(result, "score", 0)
+    reason = getattr(result, "reason", "")
+    return SignalResult(score=int(score), reason=str(reason))
 
 
 def score_item(entry: ScanEntry, all_entries: List[ScanEntry]) -> ScoredItem:
-    signals = {}
+    signal_map = {}
     
     # Calculate all signals
-    signals["age"] = calculate_age_signal(entry)
-    signals["version"] = calculate_version_signal(entry, all_entries)
-    signals["process"] = calculate_process_signal(entry)
-    signals["project"] = calculate_project_signal(entry)
+    signal_map["age"] = _coerce_signal_result(signals.calculate_age_signal(entry))
+    signal_map["version"] = _coerce_signal_result(
+        signals.calculate_version_signal(entry, all_entries)
+    )
+    signal_map["process"] = _coerce_signal_result(signals.calculate_process_signal(entry))
+    signal_map["project"] = _coerce_signal_result(signals.calculate_project_signal(entry))
     
     # Aggregate score - weighted average
     weights = {
@@ -27,7 +33,7 @@ def score_item(entry: ScanEntry, all_entries: List[ScanEntry]) -> ScoredItem:
     }
     
     total_score = 0
-    for signal_name, signal_result in signals.items():
+    for signal_name, signal_result in signal_map.items():
         total_score += signal_result.score * weights[signal_name]
     
     total_score = int(total_score)
@@ -44,5 +50,5 @@ def score_item(entry: ScanEntry, all_entries: List[ScanEntry]) -> ScoredItem:
         entry=entry,
         total_score=total_score,
         classification=classification,
-        signals=signals,
+        signals=signal_map,
     )

@@ -1,7 +1,16 @@
 {
-  "extends": "@solidjs/start/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["vite/client"]
+  },
   "include": [
     "src/**/*",
-    "types/**/*"
+    "types/**/*",
+    "vite.config.ts"
   ]
 }
