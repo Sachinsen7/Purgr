@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧹 DevSweep
+# Purgr
 
 **AI-powered developer storage cleaner for Windows, macOS & Linux**
 
@@ -13,7 +13,7 @@
 
 <br/>
 
-> DevSweep scans your developer directories, identifies stale and unused storage,
+> Purgr scans your developer directories, identifies stale and unused storage,
 > and gives you AI-powered, confidence-scored cleanup recommendations —
 > all locally, with zero telemetry.
 
@@ -34,27 +34,27 @@ Developer machines silently accumulate 5–50 GB of hidden storage across:
 - **Python** — pip caches, `__pycache__`, unused virtualenvs, PyTorch binaries
 - **Node.js** — npm cache, dead `node_modules` from old projects
 
-Existing tools (CCleaner, Storage Sense) have zero awareness of developer environments. DevSweep is built specifically for developers.
+Existing tools (CCleaner, Storage Sense) have zero awareness of developer environments. Purgr is built specifically for developers.
 
 ---
 
 ## Features
 
-- 🔍 **Smart scanning** — parallel filesystem walker across all 4 major dev tool ecosystems
-- 🤖 **AI-powered advisor** — natural language explanations for every recommendation
-- ✅ **Safety classification** — every item scored Safe / Optional / Critical
-- 📊 **Visual storage breakdown** — donut chart, size bars, per-tool breakdown
-- 🗣️ **Natural language queries** — type *"show Android files older than 1 year"*
-- 🧠 **Pattern memory** — learns from your past deletion choices
-- 🔒 **100% local AI** — Ollama runs on your machine, no data leaves
-- 📝 **Deletion audit log** — every deletion recorded in local SQLite
-- 🌍 **Cross-platform** — Windows, macOS, Linux, single codebase
+-  **Smart scanning** — parallel filesystem walker across all 4 major dev tool ecosystems
+- **AI-powered advisor** — natural language explanations for every recommendation
+- **Safety classification** — every item scored Safe / Optional / Critical
+- **Visual storage breakdown** — donut chart, size bars, per-tool breakdown
+- **Natural language queries** — type *"show Android files older than 1 year"*
+- **Pattern memory** — learns from your past deletion choices
+- **100% local AI** — Ollama runs on your machine, no data leaves
+- **Deletion audit log** — every deletion recorded in local SQLite
+- **Cross-platform** — Windows, macOS, Linux, single codebase
 
 ---
 
 ## How It Works
 
-DevSweep uses a **multi-signal scoring model** (0–100) to classify each storage item:
+Purgr uses a **multi-signal scoring model** (0–100) to classify each storage item:
 
 | Signal | Max Score | Description |
 |--------|-----------|-------------|
@@ -148,7 +148,7 @@ All providers share the same interface via **litellm** — switch with a single 
 ## Project Structure
 
 ```
-devsweep/
+Purgr/
 ├── apps/
 │   ├── desktop/                     # Tauri + SolidJS frontend
 │   │   ├── src/
@@ -182,7 +182,7 @@ devsweep/
 │
 ├── packages/
 │   └── core/                        # Python engine (pip installable)
-│       ├── devsweep/
+│       ├── Purgr/
 │       │   ├── scanner/             # Parallel filesystem walker
 │       │   ├── signals/             # Age, version, process, project signals
 │       │   ├── scorer/              # 0-100 scoring engine
@@ -217,9 +217,9 @@ devsweep/
 
 Download the latest release for your OS from the [Releases](../../releases) page:
 
-- **Windows** — `DevSweep_x.x.x_x64-setup.exe`
-- **macOS** — `DevSweep_x.x.x_x64.dmg`
-- **Linux** — `DevSweep_x.x.x_amd64.AppImage`
+- **Windows** — `Purgr_x.x.x_x64-setup.exe`
+- **macOS** — `Purgr_x.x.x_x64.dmg`
+- **Linux** — `Purgr_x.x.x_amd64.AppImage`
 
 ### AI Setup (Optional but Recommended)
 
@@ -236,7 +236,7 @@ ollama pull llama3.2
 For cloud AI, set an environment variable:
 
 ```bash
-export DEVSWEEP_AI_PROVIDER=claude
+export Purgr_AI_PROVIDER=claude
 export ANTHROPIC_API_KEY=your_key_here
 ```
 
@@ -254,8 +254,8 @@ export ANTHROPIC_API_KEY=your_key_here
 ### Setup
 
 ```bash
-git clone https://github.com/yourusername/devsweep
-cd devsweep
+git clone https://github.com/yourusername/Purgr
+cd Purgr
 
 task setup
 task dev
@@ -344,7 +344,7 @@ gh pr create
 
 ## Security
 
-DevSweep has filesystem access — security is taken seriously.
+Purgr has filesystem access — security is taken seriously.
 
 - No file is ever deleted without explicit user confirmation
 - Every deletion is recorded in a local audit log (SQLite)
@@ -366,6 +366,6 @@ MIT — free forever. See [LICENSE](LICENSE).
 
 Built with ❤️ for developers who hate mystery gigabytes
 
-⭐ Star this repo if DevSweep saved you storage!
+⭐ Star this repo if Purgr saved you storage!
 
 </div>
