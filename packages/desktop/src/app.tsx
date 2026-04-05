@@ -1,12 +1,7 @@
-import { Router } from "@solidjs/router";
-import { FileRoutes } from "@solidjs/start/router";
+import type { RouteSectionProps } from "@solidjs/router";
 import { Suspense } from "solid-js";
 import "./app.css";
 
-export default function App() {
-  return (
-    <Router root={(props) => <Suspense>{props.children}</Suspense>}>
-      <FileRoutes />
-    </Router>
-  );
+export default function App(props: RouteSectionProps) {
+  return <Suspense>{props.children}</Suspense>;
 }
