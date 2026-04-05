@@ -14,3 +14,10 @@ class ScanEntry(BaseModel):
 class SignalResult(BaseModel):
     score: int
     reason: str
+
+
+class ScoredItem(BaseModel):
+    entry: ScanEntry
+    total_score: int
+    classification: str  # 'safe', 'optional', 'critical'
+    signals: dict[str, SignalResult]
