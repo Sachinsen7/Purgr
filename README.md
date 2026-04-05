@@ -102,21 +102,17 @@ Purgr uses a **multi-signal scoring model** (0–100) to classify each storage i
 | [SQLModel](https://sqlmodel.tiangolo.com) | latest | ORM built on SQLAlchemy 2 + Pydantic |
 | [Alembic](https://alembic.sqlalchemy.org) | latest | Database migrations |
 | [psutil](https://psutil.readthedocs.io) | 6.x | Cross-platform process inspection |
-| [litellm](https://litellm.ai) | latest | Unified AI provider interface |
+| [litellm](https://litellm.ai) | latest | Local Ollama integration and future provider abstraction |
 | [structlog](https://structlog.org) | latest | Structured JSON logging |
 | [Dynaconf](https://dynaconf.com) | latest | Environment-aware configuration |
 | [anyio](https://anyio.readthedocs.io) | latest | Async backend abstraction |
 
 ### AI Layer
 
-| Provider | Type | Model | Cost |
-|----------|------|-------|------|
-| [Ollama](https://ollama.com) | Local (default) | llama3.2 / phi3 / mistral | Free, offline |
-| [Anthropic Claude](https://anthropic.com) | Cloud (optional) | Claude 3.5 Haiku | API key required |
-| [Google Gemini](https://ai.google.dev) | Cloud (optional) | Gemini 1.5 Flash | Free tier available |
-| [Groq](https://groq.com) | Cloud (optional) | llama3-70b | Free tier available |
-
-All providers share the same interface via **litellm** — switch with a single env variable.
+| Provider | Type | Status | Notes |
+|----------|------|--------|-------|
+| [Ollama](https://ollama.com) | Local (default) | Implemented | Recommended local runtime via `DEVSWEEP_OLLAMA_BASE_URL` |
+| Additional providers via litellm | Optional | Planned | The codebase is structured to expand beyond Ollama later |
 
 ### Rust (Tauri Shell)
 
@@ -139,7 +135,7 @@ All providers share the same interface via **litellm** — switch with a single 
 | [pytest](https://pytest.org) | Unit + integration tests |
 | [pytest-asyncio](https://github.com/pytest-dev/pytest-asyncio) | Async test support |
 | [Hypothesis](https://hypothesis.works) | Property-based testing for scorer |
-| [Taskfile](https://taskfile.dev) | Cross-platform task runner (replaces Makefile) |
+| [taskipy](https://github.com/taskipy/taskipy) | Python task runner for backend checks |
 | [PyInstaller](https://pyinstaller.org) | Bundle Python sidecar into standalone binary |
 | [GitHub Actions](https://github.com/features/actions) | CI on all 3 platforms + auto release |
 
@@ -149,64 +145,36 @@ All providers share the same interface via **litellm** — switch with a single 
 
 ```
 Purgr/
-├── apps/
-│   ├── desktop/                     # Tauri + SolidJS frontend
-│   │   ├── src/
-│   │   │   ├── app.tsx              # Root component + router
-│   │   │   ├── routes/              # One file per route
-│   │   │   │   ├── dashboard.tsx
-│   │   │   │   ├── scan.tsx
-│   │   │   │   ├── results.tsx
-│   │   │   │   └── settings.tsx
-│   │   │   ├── components/
-│   │   │   │   ├── ui/              # Base design system components
-│   │   │   │   ├── scan/            # Scan feature components
-│   │   │   │   ├── ai/              # AI advisor components
-│   │   │   │   └── layout/          # Sidebar, topbar
-│   │   │   ├── stores/              # Nanostores global state
-│   │   │   │   ├── scan.store.ts
-│   │   │   │   ├── ui.store.ts
-│   │   │   │   └── ai.store.ts
-│   │   │   ├── queries/             # TanStack Query hooks
-│   │   │   ├── lib/
-│   │   │   │   ├── ipc.ts           # Typed Tauri invoke wrappers
-│   │   │   │   ├── schemas.ts       # Zod schemas
-│   │   │   │   └── utils.ts
-│   │   │   └── types/
-│   │   └── src-tauri/               # Rust shell
-│   │       └── src/
-│   │           ├── commands/        # IPC command handlers
-│   │           └── main.rs
-│   │
-│   └── cli/                         # Optional standalone CLI
-│
 ├── packages/
-│   └── core/                        # Python engine (pip installable)
-│       ├── Purgr/
-│       │   ├── scanner/             # Parallel filesystem walker
-│       │   ├── signals/             # Age, version, process, project signals
-│       │   ├── scorer/              # 0-100 scoring engine
-│       │   ├── rules/               # YAML rule loader + Pydantic models
-│       │   ├── ai/                  # litellm advisor + prompt templates
-│       │   ├── api/                 # FastAPI routes + middleware
-│       │   ├── db/                  # SQLModel tables + Alembic migrations
-│       │   └── config/              # Dynaconf settings
-│       ├── tests/
-│       │   ├── unit/
-│       │   ├── integration/
-│       │   └── property/            # Hypothesis property tests
-│       └── rules/                   # YAML rule definitions
-│           ├── vscode.yaml
-│           ├── android.yaml
-│           ├── python.yaml
-│           └── node.yaml
-│
+│   ├── core/                        # Python engine and FastAPI sidecar
+│   │   ├── devsweep/
+│   │   │   ├── scanner/
+│   │   │   ├── signals/
+│   │   │   ├── scorer/
+│   │   │   ├── rules/
+│   │   │   ├── ai/
+│   │   │   ├── api/
+│   │   │   ├── db/
+│   │   │   └── config/
+│   │   ├── tests/
+│   │   │   ├── unit/
+│   │   │   └── integration/
+│   │   └── pyproject.toml
+│   └── desktop/                     # SolidJS frontend + Tauri shell
+│       ├── src/
+│       │   ├── routes/
+│       │   ├── stores/
+│       │   ├── ui/
+│       │   ├── lib/
+│       │   └── app.tsx
+│       ├── src-tauri/
+│       │   └── src/
+│       │       └── main.rs
+│       └── package.json
 └── .github/
     ├── ISSUE_TEMPLATE/
-    └── workflows/
-        ├── ci.yml                   # Test on Win/Mac/Linux
-        ├── release.yml              # Build + publish binaries
-        └── rule-lint.yml            # Validate YAML rule files
+    ├── workflows/
+    └── pull_request_template.md
 ```
 
 ---
@@ -215,7 +183,7 @@ Purgr/
 
 ### Download Binary (Recommended)
 
-Download the latest release for your OS from the [Releases](../../releases) page:
+Download the latest release for your OS from the [Releases](https://github.com/Sachinsen7/Purgr/releases) page:
 
 - **Windows** — `Purgr_x.x.x_x64-setup.exe`
 - **macOS** — `Purgr_x.x.x_x64.dmg`
@@ -233,11 +201,12 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3.2
 ```
 
-For cloud AI, set an environment variable:
+For the current local AI integration, you can point DevSweep at a custom
+Ollama endpoint:
 
 ```bash
-export Purgr_AI_PROVIDER=claude
-export ANTHROPIC_API_KEY=your_key_here
+export DEVSWEEP_OLLAMA_BASE_URL=http://localhost:11434
+export DEVSWEEP_AI_MODEL=llama3.2
 ```
 
 ---
@@ -249,28 +218,48 @@ export ANTHROPIC_API_KEY=your_key_here
 - [Node.js](https://nodejs.org) 18+
 - [Rust](https://rustup.rs) (latest stable)
 - [Python](https://python.org) 3.12+
-- [Taskfile](https://taskfile.dev) (task runner)
-
 ### Setup
 
-```bash
-git clone https://github.com/yourusername/Purgr
-cd Purgr
+#### Python backend
 
-task setup
-task dev
+```powershell
+git clone https://github.com/Sachinsen7/Purgr.git
+cd Purgr\packages\core
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .[dev]
+python -m devsweep.api
+```
+
+The backend starts on `http://127.0.0.1:9231`.
+
+#### Web preview
+
+```powershell
+cd ..\desktop
+npm install
+npm run dev
+```
+
+#### Full desktop app
+
+```powershell
+cd packages\desktop
+
+npm run tauri:dev
 ```
 
 ### Individual Tasks
 
-```bash
-task test          # Run all tests (Python + TypeScript)
-task test:py       # Python tests only
-task test:e2e      # End-to-end tests
-task build         # Production build for current platform
-task build:all     # Build for all platforms (requires CI)
-task lint          # Run all linters
-task fmt           # Format all code
+```powershell
+cd packages\core
+pytest
+ruff format .
+ruff check .
+
+cd ..\desktop
+npm run build
+npm run tauri:build
 ```
 
 ---
@@ -281,7 +270,8 @@ We welcome contributions — especially new tool rule files!
 
 ### Adding support for a new dev tool
 
-No Python knowledge needed — just add a YAML file to `packages/core/rules/`:
+No Python knowledge needed — just add a YAML file to
+`packages/core/devsweep/rules/`:
 
 ```yaml
 name: "JetBrains IDEs"
@@ -306,7 +296,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 ```bash
 git checkout -b feat/your-feature
 # make changes
-task fmt && task lint && task test
+cd packages/core
+python -m taskipy lint
+python -m taskipy test
 git commit -m "feat: your feature"
 gh pr create
 ```
@@ -319,8 +311,9 @@ gh pr create
 - [x] Multi-signal scoring model
 - [x] YAML rule system
 - [x] SQLite audit log
-- [ ] Tauri desktop UI (SolidJS)
-- [ ] AI advisor via Ollama
+- [x] Tauri desktop UI shell
+- [x] FastAPI sidecar integration
+- [x] Initial AI advisor via Ollama
 - [ ] Natural language query filter
 - [ ] Pattern memory (learn from past deletions)
 - [ ] JetBrains IDE support
@@ -353,6 +346,15 @@ Purgr has filesystem access — security is taken seriously.
 - No analytics, no telemetry, no tracking of any kind
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+---
+
+## Community
+
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [License](LICENSE)
 
 ---
 
