@@ -1,307 +1,435 @@
 import { useNavigate } from "@solidjs/router";
-import { Component, createSignal, For, Show } from "solid-js";
-import { Card, CardBody, CardHeader } from "../ui/Card";
-import { Button } from "../ui/Button";
-import { $currentScan, $scanHistory } from "../stores/scan";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { IPC } from "../lib/ipc";
+import { $currentScan, $scanHistory } from "../stores/scan";
+import { DesktopShell } from "../ui/DesktopShell";
 
-const Results: Component = () => {
+type FilterKey = "all" | "keep" | "delete" | "review";
+
+export default function Results() {
   const navigate = useNavigate();
-  const [selectedResults, setSelectedResults] = createSignal<string[]>([]);
-  const [filter, setFilter] = createSignal<"all" | "keep" | "delete" | "review">("all");
-
   const currentScan = $currentScan;
   const scanHistory = $scanHistory;
 
-  // Get results from current scan or most recent completed scan
-  const results = () => {
+  const [filter, setFilter] = createSignal<FilterKey>("all");
+  const [selectedResults, setSelectedResults] = createSignal<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const [deletionSummary, setDeletionSummary] = createSignal<{ count: number; bytes: number } | null>(
+    null,
+  );
+
+  const results = createMemo(() => {
     if (currentScan() && currentScan()?.status === "completed") {
       return currentScan()!.results;
     }
-    const lastScan = scanHistory().find(s => s.status === "completed");
-    return lastScan?.results || [];
-  };
+    return scanHistory().find((scan) => scan.status === "completed")?.results ?? [];
+  });
 
-  const filteredResults = () => {
-    const allResults = results();
-    if (filter() === "all") return allResults;
-    return allResults.filter(r => r.recommendation === filter());
-  };
-
-  const stats = () => {
-    const all = results();
-    return {
-      total: all.length,
-      keep: all.filter(r => r.recommendation === "keep").length,
-      delete: all.filter(r => r.recommendation === "delete").length,
-      review: all.filter(r => r.recommendation === "review").length,
-    };
-  };
-
-  const handleSelectResult = (id: string, selected: boolean) => {
-    const current = selectedResults();
-    if (selected) {
-      setSelectedResults([...current, id]);
-    } else {
-      setSelectedResults(current.filter(r => r !== id));
+  const filteredResults = createMemo(() => {
+    if (filter() === "all") {
+      return results();
     }
+    return results().filter((result) => result.recommendation === filter());
+  });
+
+  const selectedRows = createMemo(() =>
+    results().filter((result) => selectedResults().includes(result.id)),
+  );
+
+  const selectedBytes = createMemo(() =>
+    selectedRows().reduce((sum, result) => sum + result.size, 0),
+  );
+
+  const handleSelect = (id: string, checked: boolean) => {
+    setSelectedResults((current) =>
+      checked ? [...current, id] : current.filter((entry) => entry !== id),
+    );
   };
 
-  const handleSelectAll = (selected: boolean) => {
-    if (selected) {
-      setSelectedResults(filteredResults().map(r => r.id));
-    } else {
-      setSelectedResults([]);
-    }
+  const handleSelectAll = () => {
+    const visibleIds = filteredResults().map((result) => result.id);
+    const allSelected = visibleIds.every((id) => selectedResults().includes(id));
+    setSelectedResults(allSelected ? [] : visibleIds);
   };
 
   const handleDeleteSelected = async () => {
+    const rows = selectedRows();
+    if (rows.length === 0) {
+      return;
+    }
+
     try {
-      const pathsToDelete = results()
-        .filter(r => selectedResults().includes(r.id))
-        .map(r => r.path);
-
-      await IPC.deleteFiles(pathsToDelete);
+      await IPC.deleteFiles(rows.map((result) => result.path));
+      setDeletionSummary({
+        count: rows.length,
+        bytes: rows.reduce((sum, result) => sum + result.size, 0),
+      });
       setSelectedResults([]);
-
-      // Update scan results to mark as deleted
-      // In a real implementation, this would come from the backend
-      console.log("Deleted files:", pathsToDelete);
+      setConfirmDelete(false);
     } catch (error) {
       console.error("Failed to delete files:", error);
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    if (bytes === 0) return '0 B';
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) {
+      return "0 B";
+    }
+
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, unitIndex);
+    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
   };
 
-  const getClassificationColor = (classification: string) => {
-    switch (classification) {
-      case "safe": return "text-green-600 bg-green-100";
-      case "optional": return "text-yellow-600 bg-yellow-100";
-      case "critical": return "text-red-600 bg-red-100";
-      default: return "text-gray-600 bg-gray-100";
-    }
-  };
-
-  const getRecommendationIcon = (recommendation: string) => {
-    switch (recommendation) {
-      case "keep":
-        return (
-          <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-          </svg>
-        );
-      case "delete":
-        return (
-          <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
-        );
-      case "review":
-        return (
-          <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-        );
-      default:
-        return null;
-    }
-  };
+  const sidebarFilters = (
+    <div class="space-y-6">
+      <div>
+        <h3 class="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+          Tool Filter
+        </h3>
+        <div class="space-y-2 text-xs text-[#bacac5]">
+          <For each={["VS Code", "Android", "Python", "Node"]}>
+            {(label) => (
+              <label class="flex items-center gap-2">
+                <input checked type="checkbox" class="h-3.5 w-3.5 rounded border-none bg-[#111319] text-[#57f1db] focus:ring-0" />
+                <span>{label}</span>
+              </label>
+            )}
+          </For>
+        </div>
+      </div>
+      <div>
+        <h3 class="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+          Category
+        </h3>
+        <div class="space-y-2 text-xs text-[#bacac5]">
+          <For each={["Safe", "Optional", "Critical"]}>
+            {(label) => (
+              <label class="flex items-center gap-2">
+                <input checked type="checkbox" class="h-3.5 w-3.5 rounded border-none bg-[#111319] text-[#57f1db] focus:ring-0" />
+                <span>{label}</span>
+              </label>
+            )}
+          </For>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div class="space-y-6">
-      {/* Header */}
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-3xl font-bold text-gray-900">Scan Results</h1>
-          <p class="text-gray-600 mt-1">
-            Review and manage files identified for cleanup
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => navigate("/dashboard")}
-        >
-          Back to Dashboard
-        </Button>
-      </div>
-
-      <Show
-        when={results().length > 0}
-        fallback={
-          <Card>
-            <CardBody>
-              <div class="text-center py-12">
-                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <h3 class="mt-2 text-sm font-medium text-gray-900">No scan results</h3>
-                <p class="mt-1 text-sm text-gray-500">Run a scan to see files that can be cleaned up.</p>
-                <div class="mt-6">
-                  <Button onClick={() => navigate("/scan")}>
-                    Start New Scan
-                  </Button>
+    <DesktopShell
+      active="results"
+      eyebrow="System / Results"
+      topMetric="3.2GB Cleanable"
+      rightMeta="scan / results"
+      sidebarContent={sidebarFilters}
+    >
+      <div class="space-y-8">
+        <Show when={deletionSummary()}>
+          {(summary) => (
+            <section class="relative overflow-hidden rounded-[30px] border border-white/5 bg-[#1e1f26] px-6 py-10 text-center">
+              <div class="absolute left-1/2 top-0 h-80 w-80 -translate-x-1/2 rounded-full bg-[#57f1db]/8 blur-[120px]" />
+              <div class="relative mx-auto max-w-3xl">
+                <div class="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border border-[#57f1db]/20 bg-[#57f1db]/10 shadow-[0_0_40px_rgba(87,241,219,0.15)]">
+                  <span class="material-symbols-outlined text-4xl text-[#57f1db]" style={{ "font-variation-settings": "'FILL' 1" }}>
+                    verified
+                  </span>
+                </div>
+                <p class="font-mono text-[10px] uppercase tracking-[0.4em] text-[#57f1db]">
+                  Cleanup Complete
+                </p>
+                <div class="mt-3 flex items-end justify-center gap-3">
+                  <span class="font-headline text-6xl font-extrabold tracking-tight text-white">
+                    {(summary().bytes / 1024 / 1024 / 1024).toFixed(1)}
+                  </span>
+                  <span class="font-headline text-3xl font-bold text-white/55">GB</span>
+                </div>
+                <p class="mt-2 text-lg text-[#bacac5]">Freed from your local environment</p>
+                <div class="mt-6 flex flex-wrap justify-center gap-3">
+                  <button
+                    class="rounded-full bg-gradient-to-br from-[#57f1db] to-[#2dd4bf] px-7 py-3 text-sm font-bold text-[#003731] transition hover:shadow-[0_0_24px_rgba(87,241,219,0.22)]"
+                    onClick={() => navigate("/scan")}
+                  >
+                    Scan Again
+                  </button>
+                  <button class="rounded-full bg-[#33343b] px-7 py-3 text-sm font-bold text-white transition hover:bg-[#373940]">
+                    Share Report
+                  </button>
                 </div>
               </div>
-            </CardBody>
-          </Card>
-        }
-      >
-        {/* Stats */}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardBody class="text-center">
-              <p class="text-2xl font-semibold text-gray-900">{stats().total}</p>
-              <p class="text-sm text-gray-600">Total Files</p>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody class="text-center">
-              <p class="text-2xl font-semibold text-green-600">{stats().keep}</p>
-              <p class="text-sm text-gray-600">Keep</p>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody class="text-center">
-              <p class="text-2xl font-semibold text-red-600">{stats().delete}</p>
-              <p class="text-sm text-gray-600">Delete</p>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody class="text-center">
-              <p class="text-2xl font-semibold text-yellow-600">{stats().review}</p>
-              <p class="text-sm text-gray-600">Review</p>
-            </CardBody>
-          </Card>
-        </div>
+            </section>
+          )}
+        </Show>
 
-        {/* Controls */}
-        <Card>
-          <CardBody>
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-              <div class="flex items-center space-x-4">
-                <select
-                  value={filter()}
-                  onChange={(e) => {
-                    const value = e.currentTarget.value;
-                    if (
-                      value === "all" ||
-                      value === "keep" ||
-                      value === "delete" ||
-                      value === "review"
-                    ) {
-                      setFilter(value);
-                    }
-                  }}
-                  class="rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                >
-                  <option value="all">All Results</option>
-                  <option value="keep">Keep</option>
-                  <option value="delete">Delete</option>
-                  <option value="review">Review</option>
-                </select>
-
-                <label class="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedResults().length === filteredResults().length && filteredResults().length > 0}
-                    onChange={(e) => handleSelectAll(e.currentTarget.checked)}
-                    class="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                  />
-                  <span class="ml-2 text-sm text-gray-700">Select All</span>
-                </label>
-              </div>
-
-              <Show when={selectedResults().length > 0}>
-                <Button
-                  variant="danger"
-                  onClick={handleDeleteSelected}
-                >
-                  Delete Selected ({selectedResults().length})
-                </Button>
-              </Show>
+        <Show
+          when={results().length > 0}
+          fallback={
+            <section class="rounded-[30px] border border-white/5 bg-[#1e1f26] p-10 text-center">
+              <h2 class="font-headline text-3xl font-extrabold text-white">No scan results yet</h2>
+              <p class="mt-3 text-sm text-[#bacac5]">
+                Run a scan to populate the results table and deletion workflow.
+              </p>
+              <button
+                class="mt-6 rounded-full bg-gradient-to-br from-[#57f1db] to-[#2dd4bf] px-7 py-3 text-sm font-bold text-[#003731] transition hover:shadow-[0_0_24px_rgba(87,241,219,0.22)]"
+                onClick={() => navigate("/scan")}
+              >
+                Start New Scan
+              </button>
+            </section>
+          }
+        >
+          <div class="flex items-center justify-between">
+            <h1 class="font-headline text-3xl font-extrabold tracking-tight text-white">
+              Scan Results
+            </h1>
+            <div class="flex items-center gap-3">
+              <button
+                class="rounded-full border border-white/10 bg-[#1e1f26] px-3 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5] transition hover:border-[#57f1db]/20"
+                onClick={handleSelectAll}
+              >
+                Select Visible
+              </button>
+              <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+                Sorted by size
+              </span>
             </div>
-          </CardBody>
-        </Card>
+          </div>
 
-        {/* Results List */}
-        <Card>
-          <CardHeader>
-            <h3 class="text-lg font-medium text-gray-900">
-              Files ({filteredResults().length})
-            </h3>
-          </CardHeader>
-          <CardBody>
-            <div class="space-y-4">
+          <div class="rounded-[30px] border border-white/5 bg-[#1e1f26] p-6">
+            <div class="mb-6 flex flex-wrap items-center justify-between gap-4">
+              <div class="flex flex-wrap gap-2">
+                <For each={["all", "keep", "delete", "review"] as const}>
+                  {(value) => (
+                    <button
+                      class={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] transition ${
+                        filter() === value
+                          ? "bg-[#2dd4bf] text-[#003731]"
+                          : "bg-[#33343b] text-white hover:bg-[#373940]"
+                      }`}
+                      onClick={() => setFilter(value)}
+                    >
+                      {value}
+                    </button>
+                  )}
+                </For>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+                  {selectedResults().length} selected
+                </span>
+                <button
+                  class="rounded-full border border-[#57f1db]/20 bg-[#57f1db]/10 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#57f1db]"
+                  onClick={() => setSelectedResults(filteredResults().filter((result) => result.classification === "safe").map((result) => result.id))}
+                >
+                  Select Safe
+                </button>
+              </div>
+            </div>
+
+            <div class="mb-4 grid grid-cols-12 px-4 text-[10px] uppercase tracking-[0.22em] text-[#bacac5]/35">
+              <div class="col-span-5">Resource &amp; Location</div>
+              <div class="col-span-2 text-center">Category</div>
+              <div class="col-span-3">Disk Usage</div>
+              <div class="col-span-2 text-right">Action</div>
+            </div>
+
+            <div class="space-y-2">
               <For each={filteredResults()}>
-                {(result) => (
-                  <div class="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <div class="flex items-center space-x-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedResults().includes(result.id)}
-                        onChange={(e) => handleSelectResult(result.id, e.currentTarget.checked)}
-                        class="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                      />
+                {(result) => {
+                  const categoryClass =
+                    result.classification === "critical"
+                      ? "bg-[#93000a]/15 text-[#ffb4ab]"
+                      : result.classification === "optional"
+                        ? "bg-[#ffac5a]/10 text-[#ffd1aa]"
+                        : "bg-[#2dd4bf]/10 text-[#57f1db]";
 
-                      <div class="flex items-center space-x-2">
-                        {getRecommendationIcon(result.recommendation)}
-                        <div>
-                          <p class="font-medium text-gray-900 truncate max-w-md" title={result.path}>
+                  const icon =
+                    result.classification === "critical"
+                      ? "terminal"
+                      : result.path.toLowerCase().includes("android")
+                        ? "android"
+                        : result.path.toLowerCase().includes("node")
+                          ? "javascript"
+                          : "code_blocks";
+
+                  return (
+                    <div
+                      class={`grid grid-cols-12 items-center rounded-2xl border-l-2 px-4 py-4 transition ${
+                        result.classification === "critical"
+                          ? "border-[#ffb4ab] bg-[#191b22] hover:bg-[#22242c]"
+                          : "border-transparent bg-[#191b22] hover:border-[#57f1db] hover:bg-[#22242c]"
+                      }`}
+                    >
+                      <div class="col-span-5 flex items-center gap-4">
+                        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#111319] text-[#57f1db]/80">
+                          <span class="material-symbols-outlined">{icon}</span>
+                        </div>
+                        <div class="min-w-0">
+                          <p class="truncate text-sm font-semibold text-white">
                             {result.path.split(/[/\\]/).pop()}
                           </p>
-                          <p class="text-sm text-gray-600 truncate max-w-md" title={result.path}>
+                          <p class="truncate font-mono text-[10px] text-[#bacac5]/50">
                             {result.path}
                           </p>
                         </div>
                       </div>
-                    </div>
-
-                    <div class="flex items-center space-x-4">
-                      <div class="text-right">
-                        <p class="text-sm font-medium text-gray-900">
-                          {formatFileSize(result.size)}
-                        </p>
-                        <p class="text-sm text-gray-600">
-                          Score: {result.score}
-                        </p>
+                      <div class="col-span-2 flex justify-center">
+                        <span class={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] ${categoryClass}`}>
+                          {result.classification}
+                        </span>
                       </div>
-
-                      <span class={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getClassificationColor(result.classification)}`}>
-                        {result.classification}
-                      </span>
-
-                      <div class="flex space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => IPC.openFile(result.path)}
-                        >
-                          Open
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
+                      <div class="col-span-3 pr-8">
+                        <div class="mb-1 flex items-end justify-between">
+                          <span class="font-mono text-xs text-white">{formatBytes(result.size)}</span>
+                          <span class="font-mono text-[9px] text-[#bacac5]/45">score {result.score}</span>
+                        </div>
+                        <div class="h-1 overflow-hidden rounded-full bg-[#33343b]">
+                          <div
+                            class={`h-full ${
+                              result.classification === "critical"
+                                ? "bg-[#ffb4ab]"
+                                : result.classification === "optional"
+                                  ? "bg-[#ffd1aa]"
+                                  : "bg-[#57f1db]"
+                            }`}
+                            style={{ width: `${Math.min(result.score, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div class="col-span-2 flex items-center justify-end gap-3">
+                        <button
+                          class="rounded-full border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition hover:border-[#57f1db]/30"
                           onClick={() => IPC.showInFolder(result.path)}
                         >
-                          Show in Folder
-                        </Button>
+                          Open
+                        </button>
+                        <input
+                          type="checkbox"
+                          checked={selectedResults().includes(result.id)}
+                          onChange={(event) => handleSelect(result.id, event.currentTarget.checked)}
+                          class="h-5 w-5 rounded border-none bg-[#111319] text-[#57f1db] focus:ring-0"
+                        />
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                }}
               </For>
             </div>
-          </CardBody>
-        </Card>
-      </Show>
-    </div>
-  );
-};
+          </div>
+        </Show>
+      </div>
 
-export default Results;
+      <Show when={results().length > 0}>
+        <footer class="fixed bottom-0 left-0 right-0 border-t border-white/5 bg-[rgba(55,57,64,0.6)] px-6 py-4 backdrop-blur-xl lg:left-64 lg:px-8">
+          <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-wrap items-center gap-6">
+              <div class="flex items-center gap-3">
+                <span class="font-headline text-2xl font-bold text-[#57f1db]">
+                  {selectedResults().length}
+                </span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+                  items selected
+                </span>
+              </div>
+              <div class="hidden h-8 w-px bg-white/10 md:block" />
+              <div class="flex items-center gap-3">
+                <div class="flex items-baseline gap-2">
+                  <span class="font-mono text-lg text-white">{formatBytes(selectedBytes())}</span>
+                  <span class="material-symbols-outlined text-[#57f1db]">arrow_right_alt</span>
+                  <span class="font-mono text-lg font-bold text-[#57f1db]">0.0 GB</span>
+                </div>
+                <span class="font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+                  Potential savings
+                </span>
+              </div>
+            </div>
+
+            <button
+              class="inline-flex items-center justify-center gap-3 rounded-full bg-[#93000a] px-8 py-3 text-xs font-bold uppercase tracking-[0.22em] text-white shadow-lg shadow-[#93000a]/20 transition hover:bg-[#b00010] disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={selectedResults().length === 0}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <span class="material-symbols-outlined">delete_sweep</span>
+              Delete Selected
+            </button>
+          </div>
+        </footer>
+      </Show>
+
+      <Show when={confirmDelete()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-[#111319]/80 px-4 backdrop-blur-md">
+          <div class="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/5 bg-[rgba(55,57,64,0.6)] shadow-2xl">
+            <div class="h-1 bg-gradient-to-r from-[#ffb4ab]/70 via-[#93000a] to-[#ffb4ab]/70" />
+            <div class="p-8">
+              <div class="mb-8 flex items-start justify-between">
+                <div>
+                  <h2 class="font-headline text-2xl font-extrabold text-white">Confirm Deletion</h2>
+                  <p class="mt-1 text-sm text-[#bacac5]">
+                    Review the high-impact items selected for removal.
+                  </p>
+                </div>
+                <div class="rounded-2xl bg-[#93000a]/15 p-3">
+                  <span class="material-symbols-outlined text-3xl text-[#ffb4ab]" style={{ "font-variation-settings": "'FILL' 1" }}>
+                    delete_forever
+                  </span>
+                </div>
+              </div>
+
+              <div class="mb-8 rounded-2xl border border-[#ffb4ab]/10 bg-[#0c0e14] p-6 text-center">
+                <p class="font-mono text-5xl font-bold tracking-tight text-[#ffb4ab]">
+                  {formatBytes(selectedBytes())}
+                </p>
+                <p class="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[#bacac5]/45">
+                  Total space reclaimed
+                </p>
+              </div>
+
+              <div class="mb-8 space-y-3">
+                <p class="font-mono text-[10px] uppercase tracking-[0.22em] text-[#bacac5]/45">
+                  Top impact items
+                </p>
+                <For each={selectedRows().slice(0, 5)}>
+                  {(result) => (
+                    <div class="flex items-center justify-between rounded-2xl bg-[#282a30] px-4 py-3">
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-semibold text-white">
+                          {result.path.split(/[/\\]/).pop()}
+                        </p>
+                        <p class="truncate font-mono text-[10px] text-[#bacac5]/45">{result.path}</p>
+                      </div>
+                      <span class="font-mono text-xs text-[#57f1db]">{formatBytes(result.size)}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+
+              <div class="mb-8 flex items-start gap-3 rounded-2xl border-l-2 border-[#ffb4ab] bg-[#93000a]/10 p-4">
+                <span class="material-symbols-outlined text-[#ffb4ab]">warning</span>
+                <p class="text-xs leading-6 text-[#ffb4ab]">
+                  This action cannot be undone. These files will be permanently deleted from local
+                  storage and won&apos;t be restored from the recycle bin by DevSweep.
+                </p>
+              </div>
+
+              <div class="flex gap-4">
+                <button
+                  class="flex-1 rounded-full border border-white/10 px-6 py-3 text-sm font-bold text-[#bacac5] transition hover:bg-[#33343b] hover:text-white"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  class="flex-[2] rounded-full bg-[#93000a] px-6 py-3 text-sm font-bold text-white transition hover:brightness-110"
+                  onClick={handleDeleteSelected}
+                >
+                  Confirm Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+    </DesktopShell>
+  );
+}
