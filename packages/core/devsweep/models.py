@@ -33,3 +33,11 @@ class FileRule(BaseModel):
 class ToolRules(BaseModel):
     tool: str
     rules: list[FileRule]
+
+
+class AIAdvice(BaseModel):
+    recommendation: str  # 'keep', 'delete', 'review'
+    confidence: float  # 0-1
+    explanation: str
+    reasoning_signals: list[str]  # Key factors considered
+    similar_patterns: list[str]  # Similar past decisions

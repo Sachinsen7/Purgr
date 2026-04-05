@@ -1,20 +1,18 @@
 from pathlib import Path
 from typing import Optional
 
-from dynaconf import Dynaconf
+
+class Settings:
+    """Simple settings class."""
+
+    def __init__(self):
+        self.database_path = None  # Will use default user data directory
+        self.ollama_base_url = "http://localhost:11434"
+        self.ai_provider = "ollama"
+        self.ai_model = "llama3.2"
+        self.log_level = "INFO"
 
 
 def get_settings():
-    """Get application settings using Dynaconf."""
-    return Dynaconf(
-        settings_files=['settings.toml', '.secrets.toml'],
-        environments=True,
-        envvar_prefix='DEVSWEEP',
-        defaults={
-            'database_path': None,  # Will use default user data directory
-            'ollama_base_url': 'http://localhost:11434',
-            'ai_provider': 'ollama',
-            'ai_model': 'llama3.2',
-            'log_level': 'INFO',
-        }
-    )
+    """Get application settings."""
+    return Settings()
