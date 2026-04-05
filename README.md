@@ -25,6 +25,22 @@
 
 ---
 
+## Screenshots
+
+| Dashboard | Scan In Progress |
+|-----------|------------------|
+| ![Purgr dashboard](stitch/dashboard/screen.png) | ![Purgr scan in progress](stitch/scan_in_progress/screen.png) |
+
+| Scan Results | Settings |
+|--------------|----------|
+| ![Purgr scan results](stitch/scan_results/screen.png) | ![Purgr settings](stitch/settings/screen.png) |
+
+| Delete Confirmation | Cleanup Success |
+|---------------------|-----------------|
+| ![Purgr delete confirmation](stitch/delete_confirmation/screen.png) | ![Purgr cleanup success](stitch/results_success_screen/screen.png) |
+
+---
+
 ## The Problem
 
 Developer machines silently accumulate 5–50 GB of hidden storage across:
