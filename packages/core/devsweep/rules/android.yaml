@@ -1,0 +1,17 @@
+tool: android
+rules:
+  - pattern: "system/caches/.*"
+    description: "Android Studio system caches"
+    score_adjustment: 15
+  - pattern: "system/log/.*"
+    description: "Android Studio system logs"
+    score_adjustment: 20
+  - pattern: "plugins/.*"
+    description: "Android Studio plugin cache"
+    score_adjustment: 10
+  - pattern: ".*\.log$"
+    description: "Android Studio log files"
+    score_adjustment: 25
+  - pattern: "temp/.*"
+    description: "Android Studio temporary files"
+    score_adjustment: 30

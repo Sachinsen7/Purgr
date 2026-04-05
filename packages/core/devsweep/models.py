@@ -21,3 +21,15 @@ class ScoredItem(BaseModel):
     total_score: int
     classification: str  # 'safe', 'optional', 'critical'
     signals: dict[str, SignalResult]
+
+
+class FileRule(BaseModel):
+    pattern: str
+    description: str
+    score_adjustment: int = 0  # Bonus/penalty to total score
+    classification_override: str | None = None  # Force classification
+
+
+class ToolRules(BaseModel):
+    tool: str
+    rules: list[FileRule]

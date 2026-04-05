@@ -1,0 +1,20 @@
+tool: python
+rules:
+  - pattern: "__pycache__/.*"
+    description: "Python bytecode cache"
+    score_adjustment: 40
+  - pattern: ".*\.pyc$"
+    description: "Compiled Python files"
+    score_adjustment: 35
+  - pattern: ".*\.pyo$"
+    description: "Optimized Python files"
+    score_adjustment: 35
+  - pattern: "pip/log/.*"
+    description: "Pip log files"
+    score_adjustment: 20
+  - pattern: "\.cache/pip/.*"
+    description: "Pip cache directory"
+    score_adjustment: 15
+  - pattern: ".*dist-info/.*"
+    description: "Python package metadata"
+    score_adjustment: 5

@@ -1,0 +1,17 @@
+tool: vscode
+rules:
+  - pattern: "workspaceStorage/.*"
+    description: "VS Code workspace storage cache"
+    score_adjustment: 20
+  - pattern: "CachedData/.*"
+    description: "VS Code cached extension data"
+    score_adjustment: 15
+  - pattern: "Crash Reports/.*"
+    description: "VS Code crash report files"
+    score_adjustment: 25
+  - pattern: "logs/.*"
+    description: "VS Code log files"
+    score_adjustment: 30
+  - pattern: "User/workspaceStorage/.*"
+    description: "VS Code user workspace storage"
+    score_adjustment: 10
