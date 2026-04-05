@@ -1,4 +1,5 @@
 import { useNavigate } from "@solidjs/router";
+import { useStore } from "@nanostores/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { IPC } from "../lib/ipc";
 import { $currentScan, $isScanning, clearCurrentScan, syncScanSession } from "../stores/scan";
@@ -11,8 +12,8 @@ export default function Scan() {
   const [maxDepth, setMaxDepth] = createSignal<number | undefined>();
   let pollingHandle: number | undefined;
 
-  const currentScan = $currentScan;
-  const isScanning = $isScanning;
+  const currentScan = useStore($currentScan);
+  const isScanning = useStore($isScanning);
 
   const stopPolling = () => {
     if (pollingHandle !== undefined) {

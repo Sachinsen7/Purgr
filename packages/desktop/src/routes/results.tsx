@@ -1,4 +1,5 @@
 import { useNavigate } from "@solidjs/router";
+import { useStore } from "@nanostores/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { IPC } from "../lib/ipc";
 import { $currentScan, $scanHistory } from "../stores/scan";
@@ -8,8 +9,8 @@ type FilterKey = "all" | "keep" | "delete" | "review";
 
 export default function Results() {
   const navigate = useNavigate();
-  const currentScan = $currentScan;
-  const scanHistory = $scanHistory;
+  const currentScan = useStore($currentScan);
+  const scanHistory = useStore($scanHistory);
 
   const [filter, setFilter] = createSignal<FilterKey>("all");
   const [selectedResults, setSelectedResults] = createSignal<string[]>([]);

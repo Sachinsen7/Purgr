@@ -1,4 +1,5 @@
 import { useNavigate } from "@solidjs/router";
+import { useStore } from "@nanostores/solid";
 import { For, Show } from "solid-js";
 import { $currentScan, $isScanning, $scanHistory } from "../stores/scan";
 import { DesktopShell } from "../ui/DesktopShell";
@@ -12,9 +13,9 @@ const toolBreakdown = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const currentScan = $currentScan;
-  const scanHistory = $scanHistory;
-  const isScanning = $isScanning;
+  const currentScan = useStore($currentScan);
+  const scanHistory = useStore($scanHistory);
+  const isScanning = useStore($isScanning);
 
   const totalFiles = () => scanHistory().reduce((sum, scan) => sum + scan.totalFiles, 0);
   const pendingReview = () =>
@@ -250,4 +251,4 @@ export default function Dashboard() {
       </div>
     </DesktopShell>
   );
-}
+} 

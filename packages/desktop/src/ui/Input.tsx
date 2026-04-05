@@ -16,11 +16,7 @@ export const Input: Component<InputProps> = (props) => {
   const { label, placeholder, value, onChange, error, class: className, type = "text" } = props;
 
   return (
-    <TextField.Root
-      class="space-y-1"
-      value={value}
-      onValueChange={onChange}
-    >
+    <TextField class="space-y-1" value={value} onChange={onChange}>
       {label && (
         <TextField.Label class="block text-sm font-medium text-gray-700">
           {label}
@@ -40,6 +36,6 @@ export const Input: Component<InputProps> = (props) => {
           {error}
         </TextField.ErrorMessage>
       )}
-    </TextField.Root>
+    </TextField>
   );
 };
