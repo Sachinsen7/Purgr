@@ -29,15 +29,15 @@
 
 | Dashboard | Scan In Progress |
 |-----------|------------------|
-| ![Purgr dashboard](stitch/dashboard/screen.png) | ![Purgr scan in progress](stitch/scan_in_progress/screen.png) |
+| ![Purgr dashboard](images/dashboard/screen.png) | ![Purgr scan in progress](images/scan_in_progress/screen.png) |
 
 | Scan Results | Settings |
 |--------------|----------|
-| ![Purgr scan results](stitch/scan_results/screen.png) | ![Purgr settings](stitch/settings/screen.png) |
+| ![Purgr scan results](images/scan_results/screen.png) | ![Purgr settings](images/settings/screen.png) |
 
 | Delete Confirmation | Cleanup Success |
 |---------------------|-----------------|
-| ![Purgr delete confirmation](stitch/delete_confirmation/screen.png) | ![Purgr cleanup success](stitch/results_success_screen/screen.png) |
+| ![Purgr delete confirmation](images/delete_confirmation/screen.png) | ![Purgr cleanup success](images/results_success_screen/screen.png) |
 
 ---
 
