@@ -49,6 +49,9 @@ target-version = "py312"
 select = ["E", "F", "I", "N", "UP", "ANN", "S", "B", "A", "C4", "PT"]
 ignore = ["ANN101", "ANN102"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["devsweep"]
+
 [tool.mypy]
 strict = true
 python_version = "3.12"
