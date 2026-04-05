@@ -1,20 +1,19 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "node"],
-    "skipLibCheck": true,
-    "baseUrl": "."
-  },
-  "include": [
-    "src/**/*",
-    "types/**/*",
-    "vite.config.ts"
-  ],
-  "exclude": ["node_modules", ".output", ".vinxi"]
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "strict": true,
+        "jsx": "preserve",
+        "jsxImportSource": "solid-js",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "types": ["vite/client", "node"],
+        "skipLibCheck": true,
+
+        "paths": {
+            "@/*": ["./src/*"]
+        }
+    },
+    "include": ["src/**/*", "types/**/*", "vite.config.ts"],
+    "exclude": ["node_modules", ".output", ".vinxi"]
 }

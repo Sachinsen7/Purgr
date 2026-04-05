@@ -1,72 +1,76 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@700;800&display=swap");
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
+    :root {
+        color-scheme: dark;
+    }
 
-  html {
-    font-family: "Inter", system-ui, sans-serif;
-    background: #111319;
-  }
+    html {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: #111319;
+    }
 
-  body {
-    min-height: 100vh;
-    background:
-      radial-gradient(circle at top right, rgb(45 212 191 / 0.12), transparent 24%),
-      linear-gradient(180deg, #111319 0%, #0c0e14 100%);
-    color: #e2e2eb;
-    font-family: "Inter", system-ui, sans-serif;
-  }
+    body {
+        min-height: 100vh;
+        background:
+            radial-gradient(
+                circle at top right,
+                rgb(45 212 191 / 0.12),
+                transparent 24%
+            ),
+            linear-gradient(180deg, #111319 0%, #0c0e14 100%);
+        color: #e2e2eb;
+        font-family: 'Inter', system-ui, sans-serif;
+    }
 
-  h1,
-  h2,
-  h3,
-  h4 {
-    font-family: "Manrope", "Inter", system-ui, sans-serif;
-  }
+    h1,
+    h2,
+    h3,
+    h4 {
+        font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+    }
 
-  code,
-  pre,
-  .font-mono {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-  }
+    code,
+    pre,
+    .font-mono {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+    }
 }
 
 @layer components {
-  .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
-  }
+    .btn {
+        @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    }
 
-  .btn-primary {
-    @apply btn text-white bg-primary-600 hover:bg-primary-700 focus:ring-primary-500;
-  }
+    .btn-primary {
+        @apply btn text-white bg-primary-600 hover:bg-primary-700 focus:ring-primary-500;
+    }
 
-  .btn-secondary {
-    @apply btn text-gray-700 bg-white hover:bg-gray-50 focus:ring-primary-500 border-gray-300;
-  }
+    .btn-secondary {
+        @apply btn text-gray-700 bg-white hover:bg-gray-50 focus:ring-primary-500 border-gray-300;
+    }
 
-  .btn-danger {
-    @apply btn text-white bg-danger-600 hover:bg-danger-700 focus:ring-danger-500;
-  }
+    .btn-danger {
+        @apply btn text-white bg-danger-600 hover:bg-danger-700 focus:ring-danger-500;
+    }
 
-  .input {
-    @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm;
-  }
+    .input {
+        @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm;
+    }
 
-  .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200;
-  }
+    .card {
+        @apply bg-white rounded-lg shadow-sm border border-gray-200;
+    }
 
-  .card-header {
-    @apply px-6 py-4 border-b border-gray-200;
-  }
+    .card-header {
+        @apply px-6 py-4 border-b border-gray-200;
+    }
 
-  .card-body {
-    @apply px-6 py-4;
-  }
+    .card-body {
+        @apply px-6 py-4;
+    }
 }
