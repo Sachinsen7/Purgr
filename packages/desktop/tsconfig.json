@@ -1,0 +1,7 @@
+{
+  "extends": "@solidjs/start/tsconfig.json",
+  "include": [
+    "src/**/*",
+    "types/**/*"
+  ]
+}
