@@ -9,3 +9,8 @@ class ScanEntry(BaseModel):
     is_dir: bool
     is_file: bool
     is_symlink: bool
+
+
+class SignalResult(BaseModel):
+    score: int
+    reason: str
