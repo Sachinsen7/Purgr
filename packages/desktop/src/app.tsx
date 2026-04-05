@@ -8,7 +8,7 @@ import "./app.css";
 
 export default function App() {
   return (
-    <Router root={(props) => <Suspense>{props.children}</Suspense>}>
+    <Router preload={false} root={(props) => <Suspense>{props.children}</Suspense>}>
       <Route path="/" component={Dashboard} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/scan" component={Scan} />
