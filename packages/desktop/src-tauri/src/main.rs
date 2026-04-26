@@ -462,6 +462,7 @@ fn open_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
