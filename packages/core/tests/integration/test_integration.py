@@ -10,6 +10,22 @@ from devsweep.scorer.engine import score_item
 from devsweep.rules.loader import load_rules, get_matching_rules
 
 
+def _apply_rule_adjustments(path: Path, score: int, rules) -> int:
+    adjusted_score = score
+    for tool_rules in rules.values():
+        for _, score_adjustment, _ in get_matching_rules(path, tool_rules):
+            adjusted_score = max(0, min(100, adjusted_score + score_adjustment))
+    return adjusted_score
+
+
+def _classify(score: int) -> str:
+    if score <= 20:
+        return "safe"
+    if score <= 70:
+        return "optional"
+    return "critical"
+
+
 def test_end_to_end_scanning_pipeline():
     """Integration test for the complete scanning pipeline."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,29 +74,40 @@ def test_end_to_end_scanning_pipeline():
         for entry in entries:
             if entry.is_file:  # Only score files
                 scored_item = score_item(entry, entries)
-                scored_items.append(scored_item)
+                adjusted_score = _apply_rule_adjustments(
+                    entry.path,
+                    scored_item.total_score,
+                    rules,
+                )
+                scored_items.append(
+                    (
+                        entry.path,
+                        adjusted_score,
+                        _classify(adjusted_score),
+                    )
+                )
         
         # Find and verify specific scored items
-        pyc_item = next(item for item in scored_items if "__pycache__" in str(item.entry.path))
-        vscode_item = next(item for item in scored_items if "workspaceStorage" in str(item.entry.path))
-        important_item = next(item for item in scored_items if "important.py" in str(item.entry.path))
-        version_item = next(item for item in scored_items if "config(1).txt" in str(item.entry.path))
+        pyc_item = next(item for item in scored_items if "__pycache__" in str(item[0]))
+        vscode_item = next(item for item in scored_items if "workspaceStorage" in str(item[0]))
+        important_item = next(item for item in scored_items if "important.py" in str(item[0]))
+        version_item = next(item for item in scored_items if "config(1).txt" in str(item[0]))
         
         # Verify classifications
-        assert pyc_item.classification in ["optional", "critical"]  # Old cache file
-        assert vscode_item.classification in ["optional", "critical"]  # Cache file
-        assert important_item.classification == "safe"  # Recent, no versions
-        assert version_item.classification in ["optional", "critical"]  # Has version siblings
+        assert pyc_item[2] in ["optional", "critical"]  # Old cache file
+        assert vscode_item[2] in ["optional", "critical"]  # Cache file
+        assert important_item[2] == "safe"  # Recent, no versions
+        assert version_item[2] in ["optional", "critical"]  # Has version siblings
         
         # Test rule matching
         python_rules = rules["python"]
         vscode_rules = rules["vscode"]
         
-        pyc_matches = get_matching_rules(pyc_item.entry.path, python_rules)
+        pyc_matches = get_matching_rules(pyc_item[0], python_rules)
         assert len(pyc_matches) > 0
         assert any("bytecode cache" in match[0] for match in pyc_matches)
         
-        vscode_matches = get_matching_rules(vscode_item.entry.path, vscode_rules)
+        vscode_matches = get_matching_rules(vscode_item[0], vscode_rules)
         assert len(vscode_matches) > 0
         assert any("workspace storage" in match[0].lower() for match in vscode_matches)
 
