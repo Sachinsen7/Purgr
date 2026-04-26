@@ -3,22 +3,14 @@
 import re
 from typing import Optional
 
-from sqlmodel import select
+from sqlalchemy import select
 
-from ..db.session import get_session
 from ..db.models import LearnedPattern, PatternApplication
+from ..db.session import get_session
 
 
 class MemoryManager:
     """Manages learned cleanup patterns from user behavior."""
-
-    async def _open_session(self):
-        session_or_manager = get_session()
-        if hasattr(session_or_manager, "exec"):
-            return session_or_manager, None
-
-        session = await session_or_manager.__aenter__()
-        return session, session_or_manager
 
     async def store_pattern(
         self,
@@ -28,13 +20,15 @@ class MemoryManager:
         reason: str,
     ) -> LearnedPattern:
         """Store a new learned pattern."""
-        session, manager = await self._open_session()
-        try:
+        async with get_session() as session:
             # Check if pattern already exists
-            existing = await session.exec(
-                select(LearnedPattern).where(LearnedPattern.pattern == pattern)
-            )
-            existing_pattern = existing.first()
+            existing_pattern = (
+                await session.execute(
+                    select(LearnedPattern).where(
+                        LearnedPattern.pattern == pattern
+                    )
+                )
+            ).scalars().first()
 
             if existing_pattern:
                 # Update existing pattern
@@ -48,27 +42,25 @@ class MemoryManager:
                 await session.commit()
                 await session.refresh(existing_pattern)
                 return existing_pattern
-            else:
-                # Create new pattern
-                new_pattern = LearnedPattern(
-                    pattern=pattern,
-                    action=action,
-                    confidence=confidence,
-                    reason=reason,
-                )
-                session.add(new_pattern)
-                await session.commit()
-                await session.refresh(new_pattern)
-                return new_pattern
-        finally:
-            if manager is not None:
-                await manager.__aexit__(None, None, None)
+
+            # Create new pattern
+            new_pattern = LearnedPattern(
+                pattern=pattern,
+                action=action,
+                confidence=confidence,
+                reason=reason,
+            )
+            session.add(new_pattern)
+            await session.commit()
+            await session.refresh(new_pattern)
+            return new_pattern
 
     async def find_matching_patterns(self, file_path: str) -> list[LearnedPattern]:
         """Find patterns that match the given file path."""
-        session, manager = await self._open_session()
-        try:
-            patterns = await session.exec(select(LearnedPattern))
+        async with get_session() as session:
+            patterns = (
+                await session.execute(select(LearnedPattern))
+            ).scalars().all()
             matching = []
 
             for pattern in patterns:
@@ -80,9 +72,6 @@ class MemoryManager:
                     continue
 
             return matching
-        finally:
-            if manager is not None:
-                await manager.__aexit__(None, None, None)
 
     async def record_application(
         self,
@@ -92,8 +81,7 @@ class MemoryManager:
         user_agreed: Optional[bool] = None,
     ) -> PatternApplication:
         """Record when a pattern was applied to a scan result."""
-        session, manager = await self._open_session()
-        try:
+        async with get_session() as session:
             application = PatternApplication(
                 pattern_id=pattern_id,
                 result_id=result_id,
@@ -121,9 +109,6 @@ class MemoryManager:
             await session.commit()
             await session.refresh(application)
             return application
-        finally:
-            if manager is not None:
-                await manager.__aexit__(None, None, None)
 
     async def get_similar_patterns(
         self, file_path: str, limit: int = 5
