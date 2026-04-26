@@ -109,28 +109,28 @@ export default function Scan() {
                 when={isScanning() && currentScan()}
                 fallback={
                     <div class="mx-auto grid max-w-5xl gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-                        <section class="rounded-[32px] border border-white/5 bg-[#1e1f26] p-8">
-                            <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-[#57f1db]">
+                        <section class="rounded-[32px] border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-8 animate-in fade-in slide-in-from-left duration-700">
+                            <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-[#57f1db] animate-in fade-in duration-500 delay-100">
                                 Launch New Scan
                             </p>
-                            <h1 class="mt-3 font-headline text-4xl font-extrabold tracking-tight text-white">
+                            <h1 class="mt-3 font-headline text-4xl font-extrabold tracking-tight text-white animate-in fade-in slide-in-from-bottom duration-700 delay-200">
                                 Point DevSweep at the directories you want
                                 analyzed.
                             </h1>
-                            <p class="mt-4 max-w-2xl text-sm leading-6 text-[#bacac5]">
+                            <p class="mt-4 max-w-2xl text-sm leading-6 text-[#bacac5] animate-in fade-in duration-700 delay-300">
                                 This route now uses the same Stitch dark-shell
                                 styling. Once started, it transitions into the
                                 live progress screen instead of a plain form
                                 card.
                             </p>
 
-                            <div class="mt-8 space-y-5">
+                            <div class="mt-8 space-y-5 animate-in fade-in duration-700 delay-400">
                                 <div>
                                     <label class="mb-2 block font-mono text-[10px] uppercase tracking-[0.22em] text-[#bacac5]/45">
                                         Root Path
                                     </label>
                                     <input
-                                        class="min-h-14 w-full rounded-2xl border border-white/10 bg-[#111319] px-4 py-3 text-sm text-white outline-none transition focus:border-[#57f1db]/40"
+                                        class="min-h-14 w-full rounded-2xl border border-white/10 bg-[#111319] px-4 py-3 text-sm text-white outline-none transition-all duration-300 focus:border-[#57f1db]/40 focus:shadow-[0_0_12px_rgba(87,241,219,0.15)] hover:border-white/20"
                                         placeholder="C:\\Users\\username\\Projects or /home/user/projects"
                                         value={rootPath()}
                                         onInput={(event) =>
@@ -142,7 +142,7 @@ export default function Scan() {
                                 </div>
 
                                 <div class="grid gap-4 md:grid-cols-2">
-                                    <label class="flex items-center justify-between rounded-2xl border border-white/5 bg-[#191b22] px-4 py-4">
+                                    <label class="flex items-center justify-between rounded-2xl border border-white/5 bg-[#191b22] px-4 py-4 transition-all duration-300 hover:border-[#57f1db]/20 hover:bg-[#1f2129] cursor-pointer">
                                         <div>
                                             <p class="text-sm font-semibold text-white">
                                                 Include hidden files
