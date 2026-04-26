@@ -1,128 +1,180 @@
 import { atom, computed } from 'nanostores'
-import type { ScanSession as IPCScanSession } from '../lib/ipc'
+import {
+    IPC,
+    type ScanDetails,
+    type ScanRequest,
+    type ScanSummary,
+    type ScanSession,
+} from '../lib/ipc'
 
-export interface ScanResult {
-    id: string
-    path: string
-    size: number
-    score: number
-    classification: 'safe' | 'optional' | 'critical'
-    recommendation: 'keep' | 'delete' | 'review'
-    confidence: number
-}
-
-export interface ScanSession {
-    id: string
-    rootPath: string
-    status: 'idle' | 'scanning' | 'completed' | 'error'
-    progress: number
-    totalFiles: number
-    scannedFiles: number
-    results: ScanResult[]
-    startTime?: Date
-    endTime?: Date
-    error?: string
-}
-
-// Scan store
 export const $currentScan = atom<ScanSession | null>(null)
 export const $scanHistory = atom<ScanSession[]>([])
+export const $selectedHistory = atom<ScanDetails | null>(null)
+export const $isLoadingHistory = atom(false)
+export const $isStartingScan = atom(false)
+export const $scanError = atom<string | null>(null)
+export const $historyError = atom<string | null>(null)
 
-// Computed values
 export const $isScanning = computed(
     $currentScan,
     (scan) => scan?.status === 'scanning'
 )
-export const $scanProgress = computed(
-    $currentScan,
-    (scan) => scan?.progress || 0
-)
-export const $totalFilesFound = computed(
-    $currentScan,
-    (scan) => scan?.totalFiles || 0
-)
 
-// Actions
-export function startScan(rootPath: string) {
-    const session: ScanSession = {
-        id: crypto.randomUUID(),
-        rootPath,
-        status: 'scanning',
-        progress: 0,
-        totalFiles: 0,
-        scannedFiles: 0,
-        results: [],
-        startTime: new Date(),
+let pollingHandle: number | undefined
+
+const emptySummary = (): ScanSummary => ({
+    totalFiles: 0,
+    totalSize: 0,
+    hiddenFiles: 0,
+    issueCount: 0,
+    deletableFiles: 0,
+    deletableSize: 0,
+    reviewFiles: 0,
+})
+
+const buildPendingSession = (request: ScanRequest): ScanSession => ({
+    id: 'pending',
+    rootPaths: request.selectedDrives ?? [],
+    status: 'scanning',
+    phase: 'preparing',
+    progress: 0,
+    discoveredFiles: 0,
+    processedFiles: 0,
+    bytesScanned: 0,
+    etaSeconds: null,
+    currentDrive: request.selectedDrives?.[0] ?? null,
+    currentPath: null,
+    startTime: new Date().toISOString(),
+    endTime: null,
+    error: null,
+    summary: emptySummary(),
+    driveSummaries: [],
+    bucketSummaries: [],
+    topFiles: [],
+    oldestFile: null,
+    newestFile: null,
+    recentFindings: [],
+    issues: [],
+})
+
+function stopPolling() {
+    if (pollingHandle !== undefined) {
+        window.clearInterval(pollingHandle)
+        pollingHandle = undefined
     }
+}
+
+export async function loadHistory() {
+    $isLoadingHistory.set(true)
+    $historyError.set(null)
+    try {
+        const sessions = await IPC.getHistoryScans()
+        $scanHistory.set(sessions)
+        if (!$selectedHistory.get() && sessions.length > 0) {
+            await loadHistoryScan(sessions[0].id)
+        }
+    } catch (error) {
+        const message =
+            error instanceof Error ? error.message : 'Failed to load scan history.'
+        $historyError.set(message)
+        console.error('Failed to load scan history:', error)
+    } finally {
+        $isLoadingHistory.set(false)
+    }
+}
+
+export async function loadHistoryScan(scanId: string) {
+    try {
+        const details = await IPC.getHistoryScan(scanId)
+        $selectedHistory.set(details)
+        if (details.session.status === 'completed') {
+            const nextHistory = $scanHistory
+                .get()
+                .filter((item) => item.id !== scanId)
+            $scanHistory.set([details.session, ...nextHistory])
+        }
+        return details
+    } catch (error) {
+        const message =
+            error instanceof Error
+                ? error.message
+                : `Failed to load scan ${scanId}.`
+        $historyError.set(message)
+        console.error('Failed to load scan history detail:', error)
+        throw error
+    }
+}
+
+async function refreshScan(scanId: string) {
+    const session = await IPC.getScanStatus(scanId)
     $currentScan.set(session)
+    $scanError.set(session.status === 'error' ? session.error ?? 'Scan failed.' : null)
+    if (session.status === 'completed' || session.status === 'error') {
+        stopPolling()
+        $isStartingScan.set(false)
+        await loadHistory()
+        await loadHistoryScan(scanId)
+    }
+    return session
 }
 
-export function updateScanProgress(scannedFiles: number, totalFiles: number) {
-    const currentScan = $currentScan.get()
-    if (currentScan) {
-        $currentScan.set({
-            ...currentScan,
-            scannedFiles,
-            totalFiles,
-            progress: totalFiles > 0 ? (scannedFiles / totalFiles) * 100 : 0,
+function startPolling(scanId: string) {
+    stopPolling()
+    pollingHandle = window.setInterval(() => {
+        void refreshScan(scanId).catch((error) => {
+            console.error('Failed to poll scan status:', error)
+            $scanError.set(
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to refresh scan progress.'
+            )
+            stopPolling()
         })
+    }, 1000)
+}
+
+export async function beginScan(request: ScanRequest) {
+    $isStartingScan.set(true)
+    $scanError.set(null)
+    $currentScan.set(buildPendingSession(request))
+    try {
+        const scanId = await IPC.startScan(request)
+        await refreshScan(scanId)
+        startPolling(scanId)
+        return scanId
+    } catch (error) {
+        $currentScan.set(null)
+        $scanError.set(
+            error instanceof Error ? error.message : 'Failed to start the scan.'
+        )
+        throw error
+    } finally {
+        $isStartingScan.set(false)
     }
 }
 
-export function addScanResult(result: ScanResult) {
-    const currentScan = $currentScan.get()
-    if (currentScan) {
-        $currentScan.set({
-            ...currentScan,
-            results: [...currentScan.results, result],
-        })
-    }
+export async function hydrateCurrentScan(scanId: string) {
+    $scanError.set(null)
+    return await refreshScan(scanId)
 }
 
-export function completeScan() {
-    const currentScan = $currentScan.get()
-    if (currentScan) {
-        const completedScan = {
-            ...currentScan,
-            status: 'completed' as const,
-            endTime: new Date(),
-        }
-        $currentScan.set(completedScan)
-        $scanHistory.set([...$scanHistory.get(), completedScan])
-    }
+export async function stopCurrentScan() {
+    const scan = $currentScan.get()
+    if (!scan || scan.id === 'pending') return
+    await IPC.stopScan(scan.id)
+    stopPolling()
+    await refreshScan(scan.id)
 }
 
-export function cancelScan() {
-    const currentScan = $currentScan.get()
-    if (currentScan) {
-        const cancelledScan = {
-            ...currentScan,
-            status: 'error' as const,
-            endTime: new Date(),
-            error: 'Scan cancelled by user',
-        }
-        $currentScan.set(cancelledScan)
-        $scanHistory.set([...$scanHistory.get(), cancelledScan])
-    }
+export async function clearHistoryState() {
+    await IPC.clearScanHistory()
+    $scanHistory.set([])
+    $selectedHistory.set(null)
 }
 
 export function clearCurrentScan() {
+    stopPolling()
     $currentScan.set(null)
-}
-
-export function syncScanSession(session: IPCScanSession) {
-    const nextSession: ScanSession = {
-        ...session,
-        startTime: session.startTime ? new Date(session.startTime) : undefined,
-        endTime: session.endTime ? new Date(session.endTime) : undefined,
-    }
-
-    $currentScan.set(nextSession)
-
-    if (
-        nextSession.status === 'completed' &&
-        !$scanHistory.get().some((scan) => scan.id === nextSession.id)
-    ) {
-        $scanHistory.set([...$scanHistory.get(), nextSession])
-    }
+    $scanError.set(null)
+    $isStartingScan.set(false)
 }
