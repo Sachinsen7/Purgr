@@ -1,14 +1,12 @@
 import { atom } from 'nanostores'
 
-// UI state store
 export const $sidebarOpen = atom(true)
 export const $currentView = atom<'dashboard' | 'scan' | 'results' | 'settings'>(
     'dashboard'
 )
-export const $theme = atom<'light' | 'dark' | 'system'>('system')
+export const $theme = atom<'light' | 'dark'>('dark')
 export const $loading = atom(false)
 
-// Actions
 export function toggleSidebar() {
     $sidebarOpen.set(!$sidebarOpen.get())
 }
@@ -19,7 +17,7 @@ export function setCurrentView(
     $currentView.set(view)
 }
 
-export function setTheme(theme: 'light' | 'dark' | 'system') {
+export function setTheme(theme: 'light' | 'dark') {
     $theme.set(theme)
 }
 
