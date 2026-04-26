@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator
@@ -31,9 +32,37 @@ AsyncSessionFactory = async_sessionmaker(
 )
 
 
+async def _apply_compat_migrations(connection) -> None:
+    table_info = await connection.exec_driver_sql("PRAGMA table_info('scansession')")
+    columns = [row[1] for row in table_info.fetchall()]
+    if not columns:
+        return
+
+    if "root_paths" not in columns:
+        await connection.exec_driver_sql(
+            "ALTER TABLE scansession ADD COLUMN root_paths TEXT"
+        )
+        if "root_path" in columns:
+            rows = await connection.exec_driver_sql(
+                "SELECT id, root_path FROM scansession"
+            )
+            for row_id, root_path in rows.fetchall():
+                payload = json.dumps([root_path]) if root_path else json.dumps([])
+                await connection.exec_driver_sql(
+                    "UPDATE scansession SET root_paths = ? WHERE id = ?",
+                    (payload, row_id),
+                )
+        else:
+            await connection.exec_driver_sql(
+                "UPDATE scansession SET root_paths = '[]' WHERE root_paths IS NULL"
+            )
+
+
 async def create_db_and_tables() -> None:
     """Create database tables if they do not already exist."""
     async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+        await _apply_compat_migrations(connection)
         await connection.run_sync(SQLModel.metadata.create_all)
 
 
