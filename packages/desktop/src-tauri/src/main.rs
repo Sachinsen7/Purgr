@@ -15,9 +15,21 @@ use tauri::State;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScanRequest {
-    root_path: String,
+    selected_drives: Option<Vec<String>>,
     include_hidden: Option<bool>,
     max_depth: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanSummary {
+    total_files: u64,
+    total_size: u64,
+    hidden_files: u64,
+    issue_count: u64,
+    deletable_files: u64,
+    deletable_size: u64,
+    review_files: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,21 +42,73 @@ struct ScanResult {
     classification: String,
     recommendation: String,
     confidence: f64,
+    modified_at: String,
+    bucket: String,
+    drive: String,
+    is_hidden: bool,
+    extension: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BucketSummary {
+    bucket: String,
+    label: String,
+    file_count: u64,
+    total_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DriveSummary {
+    drive: String,
+    label: String,
+    file_count: u64,
+    total_size: u64,
+    hidden_count: u64,
+    issue_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanIssue {
+    path: String,
+    kind: String,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScanSession {
     id: String,
-    root_path: String,
+    root_paths: Vec<String>,
     status: String,
+    phase: String,
     progress: f64,
-    total_files: u64,
-    scanned_files: u64,
-    results: Vec<ScanResult>,
+    discovered_files: u64,
+    processed_files: u64,
+    bytes_scanned: u64,
+    eta_seconds: Option<u64>,
+    current_drive: Option<String>,
+    current_path: Option<String>,
     start_time: Option<String>,
     end_time: Option<String>,
     error: Option<String>,
+    summary: ScanSummary,
+    drive_summaries: Vec<DriveSummary>,
+    bucket_summaries: Vec<BucketSummary>,
+    top_files: Vec<ScanResult>,
+    oldest_file: Option<ScanResult>,
+    newest_file: Option<ScanResult>,
+    recent_findings: Vec<ScanResult>,
+    issues: Vec<ScanIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScanDetails {
+    session: ScanSession,
+    results: Vec<ScanResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +151,14 @@ struct AISettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AppearanceSettings {
+    theme: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppSettings {
+    appearance: AppearanceSettings,
     ai: AISettings,
     scanning: ScanningSettings,
     exclusions: Vec<String>,
@@ -99,10 +170,66 @@ struct SidecarId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SystemInfo {
     platform: String,
     arch: String,
     version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DriveInfo {
+    id: String,
+    path: String,
+    label: String,
+    file_system: String,
+    total_bytes: u64,
+    free_bytes: u64,
+    used_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedTarget {
+    tool: String,
+    label: String,
+    path: String,
+    exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemOverview {
+    drives: Vec<DriveInfo>,
+    managed_targets: Vec<ManagedTarget>,
+    history_count: u64,
+    active_scan_id: Option<String>,
+    last_completed_scan_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantMatch {
+    path: String,
+    snippet: String,
+    size: u64,
+    modified_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssistantQueryResponse {
+    query: String,
+    answer: String,
+    matches: Vec<AssistantMatch>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteFilesRequest {
+    file_paths: Vec<String>,
+    mode: String,
 }
 
 struct AppState {
@@ -169,7 +296,10 @@ fn spawn_sidecar() -> Result<Child, String> {
     }
 
     if cfg!(debug_assertions) {
-        let core_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("core");
+        let core_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("core");
         return Command::new("python")
             .arg("-m")
             .arg("devsweep.api")
@@ -267,7 +397,7 @@ async fn get_scan_status(scan_id: String, state: State<'_, AppState>) -> Result<
 }
 
 #[tauri::command]
-async fn get_scan_results(scan_id: String, state: State<'_, AppState>) -> Result<Vec<ScanResult>, String> {
+async fn get_scan_results(scan_id: String, state: State<'_, AppState>) -> Result<ScanDetails, String> {
     ensure_sidecar(&state).await?;
     state
         .client
@@ -277,7 +407,39 @@ async fn get_scan_results(scan_id: String, state: State<'_, AppState>) -> Result
         .map_err(|error| error.to_string())?
         .error_for_status()
         .map_err(|error| error.to_string())?
-        .json::<Vec<ScanResult>>()
+        .json::<ScanDetails>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_history_scans(state: State<'_, AppState>) -> Result<Vec<ScanSession>, String> {
+    ensure_sidecar(&state).await?;
+    state
+        .client
+        .get(format!("{}/history/scans", state.base_url))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<Vec<ScanSession>>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_history_scan(scan_id: String, state: State<'_, AppState>) -> Result<ScanDetails, String> {
+    ensure_sidecar(&state).await?;
+    state
+        .client
+        .get(format!("{}/history/scans/{scan_id}", state.base_url))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<ScanDetails>()
         .await
         .map_err(|error| error.to_string())
 }
@@ -324,12 +486,46 @@ async fn learn_from_user_action(
 }
 
 #[tauri::command]
-async fn delete_files(file_paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
+async fn query_assistant(
+    query: String,
+    session_id: Option<String>,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<AssistantQueryResponse, String> {
     ensure_sidecar(&state).await?;
     state
         .client
+        .post(format!("{}/assistant/query", state.base_url))
+        .json(&serde_json::json!({
+            "query": query,
+            "sessionId": session_id,
+            "limit": limit.unwrap_or(8),
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<AssistantQueryResponse>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn delete_files(
+    file_paths: Vec<String>,
+    mode: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    ensure_sidecar(&state).await?;
+    let payload = DeleteFilesRequest {
+        file_paths,
+        mode: mode.unwrap_or_else(|| "recycle".to_string()),
+    };
+    state
+        .client
         .post(format!("{}/files/delete", state.base_url))
-        .json(&file_paths)
+        .json(&payload)
         .send()
         .await
         .map_err(|error| error.to_string())?
@@ -398,6 +594,38 @@ async fn clear_scan_history(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_system_drives(state: State<'_, AppState>) -> Result<Vec<DriveInfo>, String> {
+    ensure_sidecar(&state).await?;
+    state
+        .client
+        .get(format!("{}/system/drives", state.base_url))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<Vec<DriveInfo>>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_system_overview(state: State<'_, AppState>) -> Result<SystemOverview, String> {
+    ensure_sidecar(&state).await?;
+    state
+        .client
+        .get(format!("{}/system/overview", state.base_url))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<SystemOverview>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn get_system_info() -> SystemInfo {
     SystemInfo {
         platform: std::env::consts::OS.to_string(),
@@ -462,7 +690,6 @@ fn open_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -471,12 +698,17 @@ fn main() {
             clear_scan_history,
             delete_files,
             get_ai_advice,
+            get_history_scan,
+            get_history_scans,
             get_scan_results,
             get_scan_status,
             get_settings,
+            get_system_drives,
             get_system_info,
+            get_system_overview,
             learn_from_user_action,
             open_file,
+            query_assistant,
             show_in_folder,
             start_scan,
             stop_scan,
