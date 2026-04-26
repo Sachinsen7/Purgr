@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,24 +6,64 @@
 
 @layer base {
     :root {
+        --radius-xl: 24px;
+        --radius-lg: 18px;
+        --radius-md: 12px;
+        --accent-rgb: 12 166 120;
+        --danger-rgb: 185 28 28;
+    }
+
+    :root[data-theme='dark'] {
         color-scheme: dark;
+        --bg: #0f1412;
+        --bg-muted: #141a18;
+        --panel: rgba(20, 26, 24, 0.92);
+        --panel-strong: #18201d;
+        --panel-soft: #1d2622;
+        --border: rgba(161, 180, 170, 0.12);
+        --border-strong: rgba(17, 24, 39, 0.18);
+        --text: #f2f5f3;
+        --text-muted: #adc0b7;
+        --text-soft: #83948c;
+        --accent: #5ee4b2;
+        --accent-strong: #0ca678;
+        --accent-soft: rgba(12, 166, 120, 0.12);
+        --danger: #f87171;
+        --danger-soft: rgba(185, 28, 28, 0.14);
+        --shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+    }
+
+    :root[data-theme='light'] {
+        color-scheme: light;
+        --bg: #f4f6f2;
+        --bg-muted: #ebefe8;
+        --panel: rgba(255, 255, 255, 0.94);
+        --panel-strong: #ffffff;
+        --panel-soft: #f8fbf8;
+        --border: rgba(15, 23, 42, 0.08);
+        --border-strong: rgba(15, 23, 42, 0.12);
+        --text: #18221d;
+        --text-muted: #4f6358;
+        --text-soft: #73857b;
+        --accent: #0ca678;
+        --accent-strong: #087f5b;
+        --accent-soft: rgba(12, 166, 120, 0.12);
+        --danger: #b91c1c;
+        --danger-soft: rgba(185, 28, 28, 0.12);
+        --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
     }
 
     html {
         font-family: 'Inter', system-ui, sans-serif;
-        background: #111319;
+        background: var(--bg);
     }
 
     body {
         min-height: 100vh;
         background:
-            radial-gradient(
-                circle at top right,
-                rgb(45 212 191 / 0.12),
-                transparent 24%
-            ),
-            linear-gradient(180deg, #111319 0%, #0c0e14 100%);
-        color: #e2e2eb;
+            radial-gradient(circle at top right, rgba(var(--accent-rgb), 0.08), transparent 22%),
+            linear-gradient(180deg, var(--bg) 0%, var(--bg-muted) 100%);
+        color: var(--text);
         font-family: 'Inter', system-ui, sans-serif;
     }
 
@@ -39,38 +79,92 @@
     .font-mono {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
     }
+
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--text-soft) transparent;
+    }
+
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--text-soft) 45%, transparent);
+    }
 }
 
 @layer components {
-    .btn {
-        @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+    .shell-panel {
+        @apply border backdrop-blur-xl;
+        background: var(--panel);
+        border-color: var(--border);
+        border-radius: var(--radius-xl);
+        box-shadow: var(--shadow);
     }
 
-    .btn-primary {
-        @apply btn text-white bg-primary-600 hover:bg-primary-700 focus:ring-primary-500;
+    .subtle-panel {
+        @apply border;
+        background: var(--panel-soft);
+        border-color: var(--border);
+        border-radius: var(--radius-lg);
     }
 
-    .btn-secondary {
-        @apply btn text-gray-700 bg-white hover:bg-gray-50 focus:ring-primary-500 border-gray-300;
+    .metric-card {
+        @apply border transition-all duration-300;
+        background: var(--panel);
+        border-color: var(--border);
+        border-radius: var(--radius-lg);
     }
 
-    .btn-danger {
-        @apply btn text-white bg-danger-600 hover:bg-danger-700 focus:ring-danger-500;
+    .metric-card:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
     }
 
-    .input {
-        @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm;
+    .action-button {
+        @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200;
+        background: var(--accent);
+        color: white;
     }
 
-    .card {
-        @apply bg-white rounded-lg shadow-sm border border-gray-200;
+    .action-button:hover {
+        background: var(--accent-strong);
     }
 
-    .card-header {
-        @apply px-6 py-4 border-b border-gray-200;
+    .secondary-button {
+        @apply inline-flex items-center justify-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-all duration-200;
+        border-color: var(--border);
+        color: var(--text);
+        background: color-mix(in srgb, var(--panel-soft) 70%, transparent);
     }
 
-    .card-body {
-        @apply px-6 py-4;
+    .secondary-button:hover {
+        border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+        background: var(--panel-soft);
+    }
+
+    .danger-button {
+        @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200;
+        background: var(--danger);
+        color: white;
+    }
+
+    .field {
+        @apply w-full rounded-2xl border px-4 py-3 text-sm outline-none transition-all duration-200;
+        background: var(--panel-strong);
+        border-color: var(--border);
+        color: var(--text);
+    }
+
+    .field::placeholder {
+        color: var(--text-soft);
+    }
+
+    .field:focus {
+        border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
     }
 }

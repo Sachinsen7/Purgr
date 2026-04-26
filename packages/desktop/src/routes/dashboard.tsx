@@ -1,307 +1,368 @@
 import { useNavigate } from '@solidjs/router'
 import { useStore } from '@nanostores/solid'
-import { For, Show } from 'solid-js'
-import { $currentScan, $isScanning, $scanHistory } from '../stores/scan'
+import { createSignal, For, Show, onMount } from 'solid-js'
+import { IPC, type AssistantQueryResponse, type SystemOverview } from '../lib/ipc'
+import { $currentScan, $scanHistory, loadHistory } from '../stores/scan'
 import { DesktopShell } from '../ui/DesktopShell'
 
-const toolBreakdown = [
-    { label: 'VS Code', share: '35%', color: 'bg-[#57f1db]' },
-    { label: 'Android', share: '25%', color: 'bg-[#9cd1c6]' },
-    { label: 'Python', share: '20%', color: 'bg-[#ffd1aa]' },
-    { label: 'Node.js', share: '20%', color: 'bg-[#859490]' },
-]
+const formatBytes = (bytes: number) => {
+    if (bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const exponent = Math.min(
+        Math.floor(Math.log(bytes) / Math.log(1024)),
+        units.length - 1
+    )
+    const value = bytes / 1024 ** exponent
+    return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
+}
 
 export default function Dashboard() {
     const navigate = useNavigate()
     const currentScan = useStore($currentScan)
     const scanHistory = useStore($scanHistory)
-    const isScanning = useStore($isScanning)
 
-    const totalFiles = () =>
-        scanHistory().reduce((sum, scan) => sum + scan.totalFiles, 0)
-    const pendingReview = () =>
-        currentScan()?.results.filter(
-            (result) => result.recommendation === 'review'
-        ).length ?? 0
-    const recentScans = () => scanHistory().slice(-3).reverse()
+    const [overview, setOverview] = createSignal<SystemOverview>()
+    const [assistantQuery, setAssistantQuery] = createSignal('')
+    const [assistantResponse, setAssistantResponse] =
+        createSignal<AssistantQueryResponse>()
+    const [assistantLoading, setAssistantLoading] = createSignal(false)
+
+    onMount(async () => {
+        await loadHistory()
+        try {
+            setOverview(await IPC.getSystemOverview())
+        } catch (error) {
+            console.error('Failed to load system overview:', error)
+        }
+    })
+
+    const lastScan = () => scanHistory()[0]
+
+    const runAssistantQuery = async () => {
+        const query = assistantQuery().trim()
+        if (!query) return
+        setAssistantLoading(true)
+        try {
+            const response = await IPC.queryAssistant(
+                query,
+                lastScan()?.id,
+                6
+            )
+            setAssistantResponse(response)
+        } catch (error) {
+            console.error('Failed to query assistant:', error)
+        } finally {
+            setAssistantLoading(false)
+        }
+    }
 
     return (
         <DesktopShell
             active="dashboard"
-            eyebrow="System / Root / Dev"
-            topMetric="3.2GB Cleanable"
-            rightMeta="dashboard / overview"
+            eyebrow="machine overview"
+            topMetric={
+                currentScan()
+                    ? `${formatBytes(currentScan()!.bytesScanned)} scanned live`
+                    : lastScan()
+                      ? `${formatBytes(lastScan()!.summary.totalSize)} in last scan`
+                      : 'No scans completed yet'
+            }
+            rightMeta="dashboard / live state"
         >
             <div class="space-y-8">
-                <div class="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-                    <section class="relative overflow-hidden rounded-[28px] border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-8 animate-in fade-in slide-in-from-left duration-700 ease-out">
-                        <div class="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-[#57f1db]/10 blur-[110px] animate-pulse" />
-                        <div class="absolute inset-y-0 right-0 w-1/2 bg-gradient-to-l from-[#57f1db]/5 to-transparent" />
-                        <div class="relative">
-                            <p class="font-mono text-[11px] uppercase tracking-[0.28em] text-[#57f1db] animate-in fade-in duration-500 delay-100">
-                                System Analysis Complete
-                            </p>
-                            <h2 class="mt-3 font-headline text-5xl font-extrabold tracking-tight text-white md:text-6xl animate-in fade-in slide-in-from-bottom duration-700 delay-200">
-                                47.3{' '}
-                                <span class="text-3xl font-medium text-[#bacac5]">
-                                    GB
-                                </span>
-                            </h2>
-                            <p class="mt-4 max-w-xl text-sm leading-6 text-[#bacac5] animate-in fade-in duration-700 delay-300">
-                                Total developer artifacts detected across
-                                caches, extensions, SDKs, and inactive project
-                                directories. The current scan flow is ready to
-                                continue from the desktop shell.
-                            </p>
-                            <div class="mt-8 flex flex-wrap gap-3 animate-in fade-in duration-700 delay-400">
-                                <button
-                                    class="rounded-full bg-gradient-to-br from-[#57f1db] to-[#2dd4bf] px-7 py-3 text-sm font-bold text-[#003731] transition-all duration-300 hover:shadow-[0_0_24px_rgba(87,241,219,0.22)] hover:scale-105 active:scale-95"
-                                    disabled={isScanning()}
-                                    onClick={() => navigate('/scan')}
-                                >
-                                    {isScanning()
-                                        ? 'Scan Running'
-                                        : 'Start Scan'}
-                                </button>
-                                <button
-                                    class="rounded-full bg-[#33343b] px-7 py-3 text-sm font-bold text-white transition-all duration-300 hover:bg-[#373940] hover:scale-105 active:scale-95"
-                                    onClick={() => navigate('/results')}
-                                >
-                                    Manual Review
-                                </button>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="rounded-[28px] border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-6 animate-in fade-in slide-in-from-right duration-700 ease-out">
-                        <p class="font-mono text-[10px] uppercase tracking-[0.24em] text-[#bacac5]/55 animate-in fade-in duration-500 delay-100">
-                            Category Breakdown
-                        </p>
-                        <div class="relative mx-auto mt-8 flex h-40 w-40 items-center justify-center animate-in zoom-in duration-700 delay-200">
-                            <div class="absolute inset-0 rounded-full border-[14px] border-[#33343b] animate-spin" style={{'animation-duration': '20s', 'animation-direction': 'reverse'}} />
-                            <div class="absolute inset-0 rotate-45 rounded-full border-[14px] border-[#57f1db] border-b-transparent border-r-transparent animate-spin" style={{'animation-duration': '15s'}} />
-                            <div class="absolute inset-0 -rotate-12 rounded-full border-[14px] border-[#9cd1c6] border-l-transparent border-t-transparent animate-spin" style={{'animation-duration': '25s', 'animation-direction': 'reverse'}} />
-                            <div class="flex flex-col items-center">
-                                <span class="font-mono text-xl font-bold text-white">
-                                    4
-                                </span>
-                                <span class="font-mono text-[9px] uppercase tracking-[0.24em] text-[#bacac5]/45">
-                                    Tools
-                                </span>
-                            </div>
-                        </div>
-                        <div class="mt-8 space-y-3">
-                            <For each={toolBreakdown}>
-                                {(tool, index) => (
-                                    <div class="flex items-center justify-between text-xs text-white/90 transition-all duration-300 hover:text-white animate-in fade-in" style={{
-                                        'animation-delay': `${300 + index() * 75}ms`
-                                    }}>
-                                        <span class="flex items-center gap-2">
-                                            <span
-                                                class={`h-2 w-2 rounded-full transition-all duration-300 hover:scale-150 ${tool.color}`}
-                                            />
-                                            {tool.label}
-                                        </span>
-                                        <span class="font-mono text-[#bacac5]">
-                                            {tool.share}
-                                        </span>
+                <Show when={currentScan()}>
+                    {(scan) => (
+                        <section class="shell-panel p-6">
+                            <div class="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
+                                <div>
+                                    <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
+                                        Current scan
+                                    </p>
+                                    <h2 class="mt-2 text-3xl font-extrabold text-[var(--text)]">
+                                        {scan().phase === 'completed'
+                                            ? 'Latest machine scan finished'
+                                            : 'Machine scan is running'}
+                                    </h2>
+                                    <p class="mt-2 text-sm text-[var(--text-muted)]">
+                                        {scan().currentDrive ?? 'Preparing drive set'}{' '}
+                                        {scan().currentPath
+                                            ? `- ${scan().currentPath}`
+                                            : ''}
+                                    </p>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <div class="subtle-panel min-w-40 px-4 py-3 text-center">
+                                        <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-soft)]">
+                                            Progress
+                                        </p>
+                                        <p class="mt-2 text-3xl font-extrabold">
+                                            {Math.round(scan().progress)}%
+                                        </p>
                                     </div>
+                                    <button
+                                        class="secondary-button"
+                                        onClick={() => navigate('/scan')}
+                                    >
+                                        Open scan view
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+                    )}
+                </Show>
+
+                <div class="grid gap-6 xl:grid-cols-[1.25fr_0.95fr]">
+                    <section class="shell-panel p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
+                                    Drives
+                                </p>
+                                <h2 class="mt-2 text-2xl font-extrabold">
+                                    Mounted storage
+                                </h2>
+                            </div>
+                            <button
+                                class="secondary-button"
+                                onClick={() => navigate('/scan')}
+                            >
+                                Start scan
+                            </button>
+                        </div>
+                        <div class="mt-6 grid gap-4 md:grid-cols-2">
+                            <For each={overview()?.drives ?? []}>
+                                {(drive) => (
+                                    <article class="metric-card p-4">
+                                        <div class="flex items-start justify-between">
+                                            <div>
+                                                <p class="text-lg font-bold text-[var(--text)]">
+                                                    {drive.label}
+                                                </p>
+                                                <p class="mt-1 text-sm text-[var(--text-muted)]">
+                                                    {drive.path}
+                                                </p>
+                                            </div>
+                                            <span class="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--accent-strong)]">
+                                                {drive.fileSystem}
+                                            </span>
+                                        </div>
+                                        <div class="mt-5">
+                                            <div class="mb-2 flex items-center justify-between text-sm">
+                                                <span class="text-[var(--text-muted)]">
+                                                    Used
+                                                </span>
+                                                <span class="font-semibold">
+                                                    {formatBytes(drive.usedBytes)} /{' '}
+                                                    {formatBytes(drive.totalBytes)}
+                                                </span>
+                                            </div>
+                                            <div class="h-2 rounded-full bg-[var(--bg-muted)]">
+                                                <div
+                                                    class="h-2 rounded-full bg-[var(--accent)]"
+                                                    style={{
+                                                        width: `${Math.min(
+                                                            (drive.usedBytes /
+                                                                Math.max(
+                                                                    drive.totalBytes,
+                                                                    1
+                                                                )) *
+                                                                100,
+                                                            100
+                                                        )}%`,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </article>
                                 )}
                             </For>
                         </div>
                     </section>
-                </div>
 
-                <div class="grid gap-6 md:grid-cols-3">
-                    <article class="rounded-3xl border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-5 transition-all duration-300 hover:bg-[#282a30] hover:shadow-lg hover:scale-105 hover:border-[#57f1db]/30 animate-in fade-in slide-in-from-bottom" style={{'animation-delay': '0ms'}}>
-                        <div class="mb-4 flex items-start justify-between">
-                            <div class="rounded-xl bg-gradient-to-br from-[#57f1db]/20 to-[#2dd4bf]/10 p-2 text-[#57f1db] transition-all duration-300 group-hover:scale-110">
-                                <span class="material-symbols-outlined">
-                                    check_circle
-                                </span>
-                            </div>
-                            <span class="rounded-full bg-gradient-to-r from-[#57f1db]/20 to-[#2dd4bf]/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[#57f1db]">
-                                Recommended
-                            </span>
-                        </div>
-                        <p class="text-xs text-[#bacac5]/65">Safe to delete</p>
-                        <p class="mt-1 font-mono text-3xl font-bold text-white">
-                            12.4{' '}
-                            <span class="text-sm font-normal text-[#bacac5]">
-                                GB
-                            </span>
+                    <section class="shell-panel p-6">
+                        <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
+                            Local file assistant
                         </p>
-                        <div class="mt-4 h-1 overflow-hidden rounded-full bg-[#111319]">
-                            <div class="h-full w-[40%] bg-gradient-to-r from-[#57f1db] to-[#2dd4bf] transition-all duration-500" />
-                        </div>
-                    </article>
-
-                    <article class="rounded-3xl border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-5 transition-all duration-300 hover:bg-[#282a30] hover:shadow-lg hover:scale-105 hover:border-[#ffd1aa]/30 animate-in fade-in slide-in-from-bottom" style={{'animation-delay': '75ms'}}>
-                        <div class="mb-4 flex items-start justify-between">
-                            <div class="rounded-xl bg-[#ffac5a]/10 p-2 text-[#ffd1aa]">
-                                <span class="material-symbols-outlined">
-                                    warning
-                                </span>
-                            </div>
-                            <span class="rounded-full bg-[#ffac5a]/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[#ffd1aa]">
-                                Optional
-                            </span>
-                        </div>
-                        <p class="text-xs text-[#bacac5]/65">
-                            Needs manual review
+                        <h2 class="mt-2 text-2xl font-extrabold">
+                            Search indexed files
+                        </h2>
+                        <p class="mt-2 text-sm text-[var(--text-muted)]">
+                            Ask about filenames, code, logs, configs, and text
+                            content from the latest completed scan.
                         </p>
-                        <p class="mt-1 font-mono text-3xl font-bold text-white">
-                            {pendingReview()}{' '}
-                            <span class="text-sm font-normal text-[#bacac5]">
-                                items
-                            </span>
-                        </p>
-                        <div class="mt-4 h-1 overflow-hidden rounded-full bg-[#111319]">
-                            <div class="h-full w-[60%] bg-gradient-to-r from-[#ffd1aa] to-[#ffac5a] transition-all duration-500" />
-                        </div>
-                    </article>
-
-                    <article class="rounded-3xl border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-5 transition-all duration-300 hover:bg-[#282a30] hover:shadow-lg hover:scale-105 hover:border-[#ffb4ab]/30 animate-in fade-in slide-in-from-bottom" style={{'animation-delay': '150ms'}}>
-                        <div class="mb-4 flex items-start justify-between">
-                            <div class="rounded-xl bg-[#ffb4ab]/10 p-2 text-[#ffb4ab]">
-                                <span class="material-symbols-outlined">
-                                    report
-                                </span>
-                            </div>
-                            <span class="rounded-full bg-[#ffb4ab]/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[#ffb4ab]">
-                                Observed
-                            </span>
-                        </div>
-                        <p class="text-xs text-[#bacac5]/65">
-                            Total files scanned
-                        </p>
-                        <p class="mt-1 font-mono text-3xl font-bold text-white">
-                            {totalFiles().toLocaleString()}
-                        </p>
-                        <div class="mt-4 h-1 overflow-hidden rounded-full bg-[#111319]">
-                            <div class="h-full w-[55%] bg-gradient-to-r from-[#ffb4ab] to-[#ff8a80] transition-all duration-500" />
-                        </div>
-                    </article>
-                </div>
-
-                <div class="grid gap-6 xl:grid-cols-[1.5fr_1fr] animate-in fade-in slide-in-from-bottom duration-700 delay-300">
-                    <section class="rounded-[28px] border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-6">
-                        <div class="mb-6 flex items-center justify-between">
-                            <h3 class="font-headline text-xl font-bold text-white">
-                                Recent Activity
-                            </h3>
-                            <button class="font-mono text-[11px] uppercase tracking-[0.22em] text-[#57f1db]">
-                                View Logs
+                        <div class="mt-5 flex gap-3">
+                            <input
+                                class="field"
+                                placeholder="Find files mentioning sdkmanager, cache, node_modules..."
+                                value={assistantQuery()}
+                                onInput={(event) =>
+                                    setAssistantQuery(event.currentTarget.value)
+                                }
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        void runAssistantQuery()
+                                    }
+                                }}
+                            />
+                            <button
+                                class="action-button"
+                                disabled={assistantLoading()}
+                                onClick={() => void runAssistantQuery()}
+                            >
+                                {assistantLoading() ? 'Searching...' : 'Search'}
                             </button>
                         </div>
+                        <Show when={assistantResponse()}>
+                            {(response) => (
+                                <div class="mt-5 space-y-3">
+                                    <div class="subtle-panel p-4">
+                                        <p class="text-sm font-semibold text-[var(--text)]">
+                                            {response().answer}
+                                        </p>
+                                    </div>
+                                    <For each={response().matches}>
+                                        {(match) => (
+                                            <div class="subtle-panel p-4">
+                                                <div class="flex items-start justify-between gap-4">
+                                                    <div class="min-w-0">
+                                                        <p class="truncate text-sm font-semibold text-[var(--text)]">
+                                                            {match.path}
+                                                        </p>
+                                                        <p class="mt-2 text-sm leading-6 text-[var(--text-muted)]">
+                                                            {match.snippet}
+                                                        </p>
+                                                    </div>
+                                                    <span class="whitespace-nowrap font-mono text-[11px] text-[var(--text-soft)]">
+                                                        {formatBytes(match.size)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            )}
+                        </Show>
+                    </section>
+                </div>
 
+                <div class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+                    <section class="shell-panel p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
+                                    Latest scan summary
+                                </p>
+                                <h2 class="mt-2 text-2xl font-extrabold">
+                                    {lastScan()
+                                        ? 'Recent machine inventory'
+                                        : 'Waiting for first full scan'}
+                                </h2>
+                            </div>
+                            <Show when={lastScan()}>
+                                <button
+                                    class="secondary-button"
+                                    onClick={() => navigate('/results')}
+                                >
+                                    Open history
+                                </button>
+                            </Show>
+                        </div>
                         <Show
-                            when={recentScans().length > 0}
+                            when={lastScan()}
                             fallback={
-                                <div class="rounded-2xl border border-dashed border-white/10 bg-[#191b22] p-6 text-sm text-[#bacac5]">
-                                    No completed scan history yet. Start a scan
-                                    to populate this activity rail.
+                                <div class="mt-6 subtle-panel p-6 text-sm text-[var(--text-muted)]">
+                                    Run a scan to populate bucket totals,
+                                    largest files, and cleanup candidates.
                                 </div>
                             }
                         >
-                            <div class="space-y-3">
-                                <For each={recentScans()}>
-                                    {(scan) => (
-                                        <button
-                                            class="flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left transition hover:bg-[#191b22]"
-                                            onClick={() => navigate('/results')}
-                                        >
-                                            <div class="flex items-center gap-4">
-                                                <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-[#111319] text-[#57f1db]/70">
-                                                    <span class="material-symbols-outlined">
-                                                        history
+                            {(scan) => (
+                                <div class="mt-6 grid gap-4 md:grid-cols-2">
+                                    <article class="metric-card p-4">
+                                        <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-soft)]">
+                                            Total scanned
+                                        </p>
+                                        <p class="mt-3 text-3xl font-extrabold">
+                                            {formatBytes(scan().summary.totalSize)}
+                                        </p>
+                                        <p class="mt-2 text-sm text-[var(--text-muted)]">
+                                            {scan().summary.totalFiles.toLocaleString()}{' '}
+                                            files across{' '}
+                                            {scan().rootPaths.length.toLocaleString()}{' '}
+                                            drives
+                                        </p>
+                                    </article>
+                                    <article class="metric-card p-4">
+                                        <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-soft)]">
+                                            Review candidates
+                                        </p>
+                                        <p class="mt-3 text-3xl font-extrabold">
+                                            {scan().summary.reviewFiles.toLocaleString()}
+                                        </p>
+                                        <p class="mt-2 text-sm text-[var(--text-muted)]">
+                                            {formatBytes(scan().summary.deletableSize)}{' '}
+                                            flagged for deletion
+                                        </p>
+                                    </article>
+                                    <For each={scan().bucketSummaries.slice(0, 6)}>
+                                        {(bucket) => (
+                                            <div class="subtle-panel p-4">
+                                                <div class="flex items-center justify-between gap-4">
+                                                    <div>
+                                                        <p class="text-sm font-semibold text-[var(--text)]">
+                                                            {bucket.label}
+                                                        </p>
+                                                        <p class="mt-1 text-xs text-[var(--text-muted)]">
+                                                            {bucket.fileCount.toLocaleString()}{' '}
+                                                            files
+                                                        </p>
+                                                    </div>
+                                                    <span class="font-mono text-[11px] text-[var(--text-soft)]">
+                                                        {formatBytes(bucket.totalSize)}
                                                     </span>
                                                 </div>
-                                                <div>
-                                                    <p class="text-sm font-semibold text-white">
-                                                        {scan.rootPath}
-                                                    </p>
-                                                    <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[#bacac5]/50">
-                                                        {scan.endTime
-                                                            ? new Date(
-                                                                  scan.endTime
-                                                              ).toLocaleString()
-                                                            : 'In progress'}
-                                                    </p>
-                                                </div>
                                             </div>
-                                            <div class="text-right">
-                                                <p class="font-mono text-sm font-bold text-[#57f1db]">
-                                                    {scan.results.length} items
-                                                </p>
-                                                <p class="text-[10px] uppercase tracking-[0.18em] text-[#bacac5]/45">
-                                                    {scan.status}
-                                                </p>
-                                            </div>
-                                        </button>
-                                    )}
-                                </For>
-                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            )}
                         </Show>
                     </section>
 
-                    <div class="space-y-6">
-                        <section class="rounded-[28px] border border-white/5 bg-[#1e1f26] p-6">
-                            <p class="font-mono text-[10px] uppercase tracking-[0.24em] text-[#bacac5]/45">
-                                Active Toolchains
-                            </p>
-                            <div class="mt-4 flex flex-wrap gap-2">
-                                <For
-                                    each={[
-                                        'VS Code',
-                                        'Android SDK',
-                                        'Python',
-                                        'Node.js',
-                                    ]}
-                                >
-                                    {(tool, index) => (
-                                        <span
-                                            class={`rounded-xl px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] ${
-                                                index() === 0
-                                                    ? 'bg-[#2dd4bf] text-[#003731]'
-                                                    : 'bg-[#33343b] text-white'
-                                            }`}
-                                        >
-                                            {tool}
-                                        </span>
-                                    )}
-                                </For>
-                            </div>
-                        </section>
-
-                        <section class="rounded-[28px] border border-white/5 bg-gradient-to-br from-[#1e1f26] to-[#191b22] p-6">
-                            <p class="font-mono text-[10px] uppercase tracking-[0.24em] text-[#bacac5]/45">
-                                Quick Action
-                            </p>
-                            <div class="mt-4 rounded-2xl border border-[#57f1db]/15 bg-[#111319] p-4">
-                                <div class="flex items-center gap-3">
-                                    <span class="material-symbols-outlined text-[#57f1db]">
-                                        terminal
-                                    </span>
-                                    <div class="min-w-0 flex-1">
-                                        <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[#bacac5]/45">
-                                            Last Path Scanned
-                                        </p>
-                                        <p class="truncate text-xs text-white/90">
-                                            {currentScan()?.rootPath ??
-                                                '~/dev/projects/web-app/node_modules'}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    class="mt-4 w-full rounded-full border border-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.18em] text-white transition hover:border-[#57f1db]/30 hover:bg-[#1e1f26]"
-                                    onClick={() => navigate('/scan')}
-                                >
-                                    Resume Scan Flow
-                                </button>
-                            </div>
-                        </section>
-                    </div>
+                    <section class="shell-panel p-6">
+                        <p class="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
+                            Recent sessions
+                        </p>
+                        <h2 class="mt-2 text-2xl font-extrabold">Scan history</h2>
+                        <div class="mt-6 space-y-3">
+                            <For each={scanHistory().slice(0, 5)}>
+                                {(session) => (
+                                    <button
+                                        class="subtle-panel w-full p-4 text-left transition hover:border-[var(--accent)]"
+                                        onClick={() => navigate('/results')}
+                                    >
+                                        <div class="flex items-center justify-between gap-4">
+                                            <div class="min-w-0">
+                                                <p class="truncate text-sm font-semibold text-[var(--text)]">
+                                                    {session.rootPaths.join(', ')}
+                                                </p>
+                                                <p class="mt-1 text-xs text-[var(--text-muted)]">
+                                                    {session.summary.totalFiles.toLocaleString()}{' '}
+                                                    files ·{' '}
+                                                    {formatBytes(
+                                                        session.summary.totalSize
+                                                    )}
+                                                </p>
+                                            </div>
+                                            <span class="rounded-full bg-[var(--accent-soft)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--accent-strong)]">
+                                                {session.status}
+                                            </span>
+                                        </div>
+                                    </button>
+                                )}
+                            </For>
+                        </div>
+                    </section>
                 </div>
             </div>
         </DesktopShell>
