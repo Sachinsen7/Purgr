@@ -10,17 +10,18 @@
         "format:check": "prettier . --check",
         "start": "vinxi start",
         "tauri": "tauri",
-        "tauri:dev": "tauri dev",
-        "tauri:build": "tauri build"
+        "tauri:dev": "cargo tauri dev",
+        "tauri:build": "cargo tauri build"
     },
     "dependencies": {
         "@kobalte/core": "^0.13.7",
         "@nanostores/solid": "^1.1.1",
+        "@solid-primitives/transition-group": "^1.1.2",
         "@solidjs/router": "^0.14.1",
         "@solidjs/start": "^1.1.7",
         "@tanstack/solid-query": "^5.59.0",
-        "@tauri-apps/api": "^2.0.0-rc.7",
-        "@tauri-apps/plugin-shell": "^2.0.0-rc.1",
+        "@tauri-apps/api": "^2.10.1",
+        "@tauri-apps/plugin-shell": "^2.3.5",
         "class-variance-authority": "^0.7.0",
         "clsx": "^2.1.1",
         "nanostores": "^1.0.1",
@@ -29,7 +30,7 @@
         "zod": "^3.23.8"
     },
     "devDependencies": {
-        "@tauri-apps/cli": "^2.0.0-rc.16",
+        "@tauri-apps/cli": "^2.10.1",
         "@types/node": "^22.7.4",
         "@unocss/cli": "^0.62.3",
         "@unocss/core": "^0.62.3",

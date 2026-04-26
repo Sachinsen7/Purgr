@@ -10,10 +10,10 @@ def test_load_rules():
         
         # Create a test rule file
         rule_file = rules_dir / "test.yaml"
-        rule_file.write_text("""
+        rule_file.write_text(r"""
 tool: test
 rules:
-  - pattern: ".*\.tmp$"
+  - pattern: '.*\.tmp$'
     description: "Temporary files"
     score_adjustment: 30
 """)
@@ -23,7 +23,7 @@ rules:
         assert "test" in rules
         assert rules["test"].tool == "test"
         assert len(rules["test"].rules) == 1
-        assert rules["test"].rules[0].pattern == ".*\.tmp$"
+        assert rules["test"].rules[0].pattern == r".*\.tmp$"
         assert rules["test"].rules[0].score_adjustment == 30
 
 

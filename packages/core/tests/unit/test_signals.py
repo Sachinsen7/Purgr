@@ -95,6 +95,39 @@ def test_calculate_version_signal_with_siblings():
     assert "One versioned sibling" in result.reason
 
 
+def test_calculate_version_signal_for_versioned_entry():
+    entry = ScanEntry(
+        path=Path("/test/config(1).txt"),
+        size=100,
+        mtime=time.time(),
+        is_dir=False,
+        is_file=True,
+        is_symlink=False,
+    )
+    sibling1 = ScanEntry(
+        path=Path("/test/config.txt"),
+        size=100,
+        mtime=time.time(),
+        is_dir=False,
+        is_file=True,
+        is_symlink=False,
+    )
+    sibling2 = ScanEntry(
+        path=Path("/test/config_v2.txt"),
+        size=100,
+        mtime=time.time(),
+        is_dir=False,
+        is_file=True,
+        is_symlink=False,
+    )
+
+    all_entries = [entry, sibling1, sibling2]
+    result = calculate_version_signal(entry, all_entries)
+
+    assert result.score == 60
+    assert "versioned siblings" in result.reason
+
+
 def test_calculate_process_signal_directory():
     entry = ScanEntry(
         path=Path("/test/dir"),

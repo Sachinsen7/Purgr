@@ -32,7 +32,7 @@ def test_score_item_safe_classification():
         
         assert isinstance(result, ScoredItem)
         assert result.entry == entry
-        assert result.total_score == 7  # (10*0.4 + 5*0.3 + 0*0.2 + 5*0.1) = 7
+        assert result.total_score == 6  # int(10*0.4 + 5*0.3 + 0*0.2 + 5*0.1) = 6
         assert result.classification == "safe"
         assert "age" in result.signals
         assert "version" in result.signals
@@ -64,7 +64,7 @@ def test_score_item_critical_classification():
         
         result = score_item(entry, all_entries)
         
-        assert result.total_score == 87  # (100*0.4 + 90*0.3 + 50*0.2 + 80*0.1) = 87
+        assert result.total_score == 85  # int(100*0.4 + 90*0.3 + 50*0.2 + 80*0.1) = 85
         assert result.classification == "critical"
 
 
