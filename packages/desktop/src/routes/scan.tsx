@@ -25,6 +25,12 @@ const formatBytes = (bytes: number) => {
     return `${value.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }
 
+const displayProgress = (progress: number, processedFiles: number) => {
+    if (progress >= 100) return 100
+    if (processedFiles > 0) return Math.max(1, Math.floor(progress))
+    return 0
+}
+
 export default function Scan() {
     const currentScan = useStore($currentScan)
     const historyError = useStore($historyError)
@@ -41,44 +47,48 @@ export default function Scan() {
     )
 
     onMount(async () => {
-        await loadHistory()
-        try {
-            const [settingsResult, overviewResult] = await Promise.allSettled([
-                IPC.getSettings(),
-                IPC.getSystemOverview(),
-            ])
+        void loadHistory()
+        setConfigurationError(null)
 
-            if (settingsResult.status === 'fulfilled') {
-                setIncludeHidden(settingsResult.value.scanning.includeHidden)
-            } else {
-                console.error(
-                    'Failed to load scan settings:',
-                    settingsResult.reason
+        const overviewResult = await Promise.race([
+            IPC.getSystemOverview(),
+            new Promise<never>((_, reject) =>
+                window.setTimeout(
+                    () => reject(new Error('System overview request timed out.')),
+                    12000
                 )
-            }
-
-            if (overviewResult.status === 'fulfilled') {
-                const systemOverview = overviewResult.value
-                setOverview(systemOverview)
-                setSelectedDrives(
-                    systemOverview.drives.map((drive) => drive.path)
-                )
-                if (systemOverview.activeScanId) {
-                    await hydrateCurrentScan(systemOverview.activeScanId)
-                }
-            } else {
-                throw overviewResult.reason
-            }
-        } catch (error) {
+            ),
+        ]).catch((error) => {
             setConfigurationError(
                 error instanceof Error
                     ? error.message
                     : 'Failed to load scan configuration.'
             )
-            console.error('Failed to load scan configuration:', error)
-        } finally {
-            setConfigurationLoading(false)
+            console.error('Failed to load scan overview:', error)
+            return null
+        })
+
+        if (overviewResult) {
+            setOverview(overviewResult)
+            setSelectedDrives(overviewResult.drives.map((drive) => drive.path))
+            if (overviewResult.activeScanId) {
+                await hydrateCurrentScan(overviewResult.activeScanId)
+            }
         }
+
+        void IPC.getSettings()
+            .then((settings) => {
+                setIncludeHidden(settings.scanning.includeHidden)
+            })
+            .catch((error) => {
+                console.error('Failed to load scan settings:', error)
+            })
+
+        if (overviewResult) {
+            setConfigurationError(null)
+        }
+
+        setConfigurationLoading(false)
     })
 
     const toggleDrive = (drivePath: string) => {
@@ -350,7 +360,11 @@ export default function Scan() {
                                         />
                                         <div class="text-center">
                                             <p class="text-5xl font-extrabold">
-                                                {Math.round(scan().progress)}%
+                                                {displayProgress(
+                                                    scan().progress,
+                                                    scan().processedFiles
+                                                )}
+                                                %
                                             </p>
                                             <p class="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-soft)]">
                                                 {scan().phase}
@@ -375,7 +389,9 @@ export default function Scan() {
                                             unreadable or protected locations ·{' '}
                                             {scan().etaSeconds
                                                 ? `${scan().etaSeconds}s remaining`
-                                                : 'estimating time remaining'}
+                                                : scan().processedFiles > 0
+                                                  ? 'measuring scan activity'
+                                                  : 'estimating time remaining'}
                                         </p>
                                     </div>
 

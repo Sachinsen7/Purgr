@@ -57,6 +57,30 @@ async def _apply_compat_migrations(connection) -> None:
                 "UPDATE scansession SET root_paths = '[]' WHERE root_paths IS NULL"
             )
 
+    session_defaults = {
+        "completed_at": "ALTER TABLE scansession ADD COLUMN completed_at DATETIME",
+        "total_size_found": "ALTER TABLE scansession ADD COLUMN total_size_found INTEGER DEFAULT 0",
+        "total_size_cleaned": "ALTER TABLE scansession ADD COLUMN total_size_cleaned INTEGER DEFAULT 0",
+    }
+    for column, statement in session_defaults.items():
+        if column not in columns:
+            await connection.exec_driver_sql(statement)
+
+    result_info = await connection.exec_driver_sql("PRAGMA table_info('scanresult')")
+    result_columns = [row[1] for row in result_info.fetchall()]
+    result_defaults = {
+        "tool": "ALTER TABLE scanresult ADD COLUMN tool TEXT DEFAULT 'filesystem'",
+        "reason": "ALTER TABLE scanresult ADD COLUMN reason TEXT DEFAULT ''",
+        "ai_explanation": "ALTER TABLE scanresult ADD COLUMN ai_explanation TEXT DEFAULT ''",
+        "cleanup_preset": "ALTER TABLE scanresult ADD COLUMN cleanup_preset TEXT DEFAULT 'deep'",
+        "recovery_hint": "ALTER TABLE scanresult ADD COLUMN recovery_hint TEXT DEFAULT ''",
+        "last_git_commit_at": "ALTER TABLE scanresult ADD COLUMN last_git_commit_at DATETIME",
+        "package_fingerprint": "ALTER TABLE scanresult ADD COLUMN package_fingerprint TEXT DEFAULT ''",
+    }
+    for column, statement in result_defaults.items():
+        if column not in result_columns:
+            await connection.exec_driver_sql(statement)
+
 
 async def create_db_and_tables() -> None:
     """Create database tables if they do not already exist."""

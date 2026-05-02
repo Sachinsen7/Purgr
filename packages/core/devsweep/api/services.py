@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import hashlib
 import json
 import os
 import platform
+import subprocess
 import stat
 import time
 from collections import deque
@@ -13,14 +16,16 @@ from pathlib import Path
 from typing import Any, Literal
 
 import psutil
+import structlog
 from sqlalchemy import delete, desc, select
 
-from ..ai.advisor import AIAdvisor
 from ..config.settings import get_settings
 from ..db.models import DeletionAudit, FileIndexEntry, ScanIssue, ScanResult, ScanSession
 from ..db.session import create_db_and_tables, get_session
 from ..models import ScanEntry, ScoredItem
 from ..rules.loader import get_matching_rules, load_rules
+from ..scanner.dead_project_detector import find_dead_projects, DeadProject
+from ..scanner.developer_paths import get_developer_scan_paths, get_dead_project_search_locations
 from ..scanner.platforms import ToolName, get_tool_paths
 from ..scanner.walker import walk_directory
 from ..scorer.engine import score_item
@@ -30,6 +35,7 @@ from .schemas import (
     AssistantMatchResponse,
     AssistantQueryResponse,
     BucketSummaryResponse,
+    DeadProjectResponse,
     DriveInfoResponse,
     DriveSummaryResponse,
     ManagedTargetResponse,
@@ -42,12 +48,27 @@ from .schemas import (
     SystemOverviewResponse,
 )
 
+logger = structlog.get_logger()
+
 LIVE_FINDINGS_LIMIT = 10
 TOP_FILES_LIMIT = 8
 ISSUE_PREVIEW_LIMIT = 20
 DB_BATCH_SIZE = 100
 TEXT_INDEX_LIMIT_BYTES = 1024 * 1024
 TEXT_SNIPPET_LIMIT = 1200
+DEAD_PROJECT_DAYS = 90
+DEV_ARTIFACT_DIRS = {
+    "node_modules",
+    ".venv",
+    "venv",
+    "env",
+    ".tox",
+    "__pycache__",
+}
+NOISY_SKIP_PREFIXES = (
+    ".pytest_cache",
+    "pytest-cache-files-",
+)
 
 BUCKET_LABELS: dict[str, str] = {
     "windows": "Windows",
@@ -110,6 +131,17 @@ def _derive_recommendation(
     if classification == "optional":
         return "review"
     return "keep"
+
+
+def _preset_for_recommendation(
+    recommendation: Literal["keep", "delete", "review"],
+    confidence: float,
+) -> Literal["quick", "deep", "nuclear"]:
+    if recommendation == "delete" and confidence >= 0.85:
+        return "quick"
+    if recommendation in {"delete", "review"}:
+        return "deep"
+    return "nuclear"
 
 
 def _derive_confidence(score: int) -> float:
@@ -198,6 +230,7 @@ class ScanRuntime:
     top_files: list[ScanResultResponse] = field(default_factory=list)
     recent_findings: deque[ScanResultResponse] = field(default_factory=lambda: deque(maxlen=LIVE_FINDINGS_LIMIT))
     issue_preview: deque[ScanIssueResponse] = field(default_factory=lambda: deque(maxlen=ISSUE_PREVIEW_LIMIT))
+    dead_projects: list[DeadProjectResponse] = field(default_factory=list)
     oldest_file: ScanResultResponse | None = None
     newest_file: ScanResultResponse | None = None
     processed_index: int = 0
@@ -227,7 +260,8 @@ class ScanManager:
         self._jobs: dict[str, ScanRuntime] = {}
         self._settings_store = SettingsStore()
         self._rules = load_rules()
-        self._advisor = AIAdvisor()
+        self._advisor: Any | None = None
+        self._drive_cache: list[DriveInfoResponse] = []
 
     async def startup(self) -> None:
         await create_db_and_tables()
@@ -258,37 +292,135 @@ class ScanManager:
                 )
             )
         drives.sort(key=lambda drive: drive.path.lower())
+        self._drive_cache = drives
+        return drives
+
+    async def _get_drive_infos_safe(self) -> list[DriveInfoResponse]:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._get_drive_infos),
+                timeout=5,
+            )
+        except Exception:
+            return list(self._drive_cache) or self._fallback_drive_infos()
+
+    def _fallback_drive_infos(self) -> list[DriveInfoResponse]:
+        if platform.system() != "Windows":
+            return []
+        drives: list[DriveInfoResponse] = []
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        for index in range(26):
+            if not bitmask & (1 << index):
+                continue
+            root = f"{chr(65 + index)}:\\"
+            try:
+                usage = psutil.disk_usage(root)
+            except OSError:
+                usage = None
+            drives.append(
+                DriveInfoResponse(
+                    id=root,
+                    path=root,
+                    label=root[:2],
+                    fileSystem="unknown",
+                    totalBytes=usage.total if usage is not None else 0,
+                    freeBytes=usage.free if usage is not None else 0,
+                    usedBytes=usage.used if usage is not None else 0,
+                )
+            )
         return drives
 
     async def get_system_drives(self) -> list[DriveInfoResponse]:
-        return self._get_drive_infos()
+        return await self._get_drive_infos_safe()
 
     async def get_system_overview(self) -> SystemOverviewResponse:
-        settings = await self.load_settings()
-        drives = self._get_drive_infos()
+        try:
+            settings = await asyncio.wait_for(self.load_settings(), timeout=2)
+        except Exception:
+            settings = AppSettings()
+        drives = await self._get_drive_infos_safe()
         managed_targets = self._build_managed_targets(settings)
 
         async with get_session() as session:
             history_count = len((await session.execute(select(ScanSession))).scalars().all())
             last_completed = (
-                await session.execute(select(ScanSession).order_by(desc(ScanSession.created_at)).limit(1))
+                await session.execute(select(ScanSession).order_by(desc(ScanSession.completed_at)).limit(1))
             ).scalars().first()
 
         active_scan_id = next(iter(self._jobs.keys()), None)
+        
+        # Calculate last scan statistics
+        last_scan_date = None
+        total_size_found = 0
+        safe_to_delete = 0
+        optional_size = 0
+        critical_size = 0
+        
+        if last_completed:
+            try:
+                async with get_session() as session:
+                    result_rows = (
+                        await session.execute(
+                            select(ScanResult)
+                            .where(ScanResult.session_id == last_completed.id)
+                        )
+                    ).scalars().all()
+                
+                last_scan_date = last_completed.completed_at
+                
+                for result in result_rows:
+                    total_size_found += result.file_size
+                    
+                    if result.classification == "safe":
+                        safe_to_delete += result.file_size
+                    elif result.classification == "optional":
+                        optional_size += result.file_size
+                    elif result.classification == "critical":
+                        critical_size += result.file_size
+            except Exception as error:
+                logger.debug("Error calculating scan statistics", error=str(error))
+        
+        # Calculate total cleaned lifetime
+        total_cleaned_lifetime = 0
+        try:
+            async with get_session() as session:
+                audit_rows = (
+                    await session.execute(select(DeletionAudit))
+                ).scalars().all()
+                total_cleaned_lifetime = sum(audit.file_size for audit in audit_rows if audit.file_size)
+        except Exception as error:
+            logger.debug("Error calculating lifetime cleaned", error=str(error))
+        
         return SystemOverviewResponse(
             drives=drives,
             managedTargets=managed_targets,
             historyCount=history_count,
             activeScanId=active_scan_id,
             lastCompletedScanId=str(last_completed.id) if last_completed and last_completed.id is not None else None,
+            lastScanDate=last_scan_date,
+            totalSizeFound=total_size_found,
+            safeToDelete=safe_to_delete,
+            optional=optional_size,
+            critical=critical_size,
+            totalCleanedLifetime=total_cleaned_lifetime,
         )
 
     async def start_scan(self, request: ScanRequest) -> str:
-        settings = await self.load_settings()
-        drives = self._get_drive_infos()
-        root_paths = request.selectedDrives or [drive.path for drive in drives]
-        if not root_paths:
-            raise ValueError("No drives are available to scan.")
+        try:
+            settings = await asyncio.wait_for(self.load_settings(), timeout=2)
+        except Exception:
+            settings = AppSettings()
+        
+        # Use developer paths by default, fall back to drives if explicitly provided
+        if request.selectedDrives:
+            root_paths = request.selectedDrives
+        else:
+            # Automatically use developer-focused paths
+            dev_paths = await asyncio.to_thread(get_developer_scan_paths)
+            root_paths = [str(p) for p in dev_paths]
+            if not root_paths:
+                raise ValueError("No developer paths found on this system.")
+        
         include_hidden = request.includeHidden if request.includeHidden is not None else settings.scanning.includeHidden
         max_depth = request.maxDepth if request.maxDepth is not None else settings.scanning.maxDepth
         follow_symlinks = settings.scanning.followSymlinks
@@ -297,9 +429,14 @@ class ScanManager:
             tool for tool, enabled in settings.scanning.toolsets.model_dump().items() if enabled
         }
         tool_paths = self._resolve_tool_paths(enabled_tools)
-        total_target_bytes = sum(
-            drive.usedBytes for drive in drives if drive.path in root_paths
-        ) or 1
+        
+        # For developer paths, estimate total size instead of drive sizes
+        total_target_bytes = 1024 * 1024 * 1024  # Default 1GB estimate
+        try:
+            drives = await self._get_drive_infos_safe()
+            total_target_bytes = sum(drive.usedBytes for drive in drives) or total_target_bytes
+        except Exception:
+            pass  # Fall back to default estimate
 
         async with get_session() as session:
             db_session = ScanSession(
@@ -319,6 +456,7 @@ class ScanManager:
             discoveredFiles=0,
             processedFiles=0,
             bytesScanned=0,
+            etaSeconds=None,
             currentDrive=None,
             currentPath=None,
             startTime=db_session.created_at.replace(tzinfo=timezone.utc),
@@ -400,7 +538,12 @@ class ScanManager:
         results = [self._result_row_to_response(result, settings) for result in result_rows]
         issues = [ScanIssueResponse(path=row.path, kind=row.kind, message=row.message) for row in issue_rows]
         session_response = self._build_session_response_from_rows(row, results, issues)
-        return ScanDetailsResponse(session=session_response, results=results)
+        
+        # Dead projects are stored only in-memory during active scans
+        # For historical scans, we return empty list
+        dead_projects: list[DeadProjectResponse] = []
+        
+        return ScanDetailsResponse(session=session_response, results=results, deadProjects=dead_projects)
 
     async def clear_history(self) -> None:
         async with get_session() as session:
@@ -430,6 +573,14 @@ class ScanManager:
                         file_size_at_action=row.file_size,
                     )
                 )
+            cleaned_by_session: dict[int, int] = {}
+            for row in result_rows:
+                cleaned_by_session[row.session_id] = cleaned_by_session.get(row.session_id, 0) + row.file_size
+            for session_id, cleaned_size in cleaned_by_session.items():
+                scan_session = await session.get(ScanSession, session_id)
+                if scan_session is not None:
+                    scan_session.total_size_cleaned += cleaned_size
+                    session.add(scan_session)
             await session.execute(
                 delete(FileIndexEntry).where(FileIndexEntry.file_path.in_(file_paths))
             )
@@ -451,7 +602,7 @@ class ScanManager:
     async def get_ai_advice(self, file_path: str) -> AIAdviceResponse:
         entry = await asyncio.to_thread(self._entry_from_path, Path(file_path))
         scored_item = score_item(entry, [entry])
-        advice = await self._advisor.get_advice(scored_item)
+        advice = await self._get_advisor().get_advice(scored_item)
         return AIAdviceResponse(
             recommendation=advice.recommendation,
             confidence=advice.confidence,
@@ -463,7 +614,7 @@ class ScanManager:
     async def learn_from_user_action(self, file_path: str, action: str, reason: str) -> None:
         entry = await asyncio.to_thread(self._entry_from_path, Path(file_path))
         scored_item = score_item(entry, [entry])
-        await self._advisor.learn_from_user_action(scored_item, action, reason)
+        await self._get_advisor().learn_from_user_action(scored_item, action, reason)
 
     async def query_assistant(
         self,
@@ -555,27 +706,44 @@ class ScanManager:
                     runtime.drive_totals[root_path_str].issue_count += 1
 
                 def should_skip(path: Path, is_dir: bool) -> bool:
+                    if self._is_noisy_scan_path(path):
+                        return True
                     if self._is_excluded(path, runtime.exclusions):
                         return True
                     if not runtime.include_hidden and self._is_hidden(path):
                         return True
                     return False
 
-                for entry in walk_directory(
+                def should_descend(path: Path) -> bool:
+                    return not self._is_dev_artifact_directory(path)
+
+                async for event in self._stream_walk_events(
                     root_path,
                     follow_symlinks=runtime.follow_symlinks,
                     max_depth=runtime.max_depth,
-                    on_issue=on_issue,
+                    cancel_event=runtime.cancel_event,
                     should_skip=should_skip,
+                    should_descend=should_descend,
+                    on_issue=on_issue,
                 ):
                     if runtime.cancel_event.is_set():
                         raise RuntimeError("Scan cancelled by user")
-                    if not entry.is_file:
-                        continue
 
-                    runtime.session.currentPath = str(entry.path.parent)
+                    runtime.session.currentPath = str(
+                        event.path if event.is_dir else event.path.parent
+                    )
+                    if event.is_dir and self._is_dev_artifact_directory(event.path):
+                        entry = await self._entry_for_directory_artifact(
+                            event,
+                            runtime.cancel_event,
+                        )
+                    elif not event.is_file:
+                        await asyncio.sleep(0)
+                        continue
+                    else:
+                        entry = event
                     runtime.session.discoveredFiles += 1
-                    result = self._process_entry(runtime, root_path_str, entry)
+                    result = await self._process_entry(runtime, root_path_str, entry)
                     runtime.result_buffer.append(result["db_result"])
                     if result["index_entry"] is not None:
                         runtime.index_buffer.append(result["index_entry"])
@@ -612,7 +780,191 @@ class ScanManager:
             await self._finalize_scan(runtime)
             self._refresh_session_view(runtime)
 
-    def _process_entry(
+    async def _stream_walk_events(
+        self,
+        root_path: Path,
+        *,
+        follow_symlinks: bool,
+        max_depth: int | None,
+        cancel_event: asyncio.Event,
+        should_skip: Any,
+        should_descend: Any | None = None,
+        on_issue: Any | None = None,
+    ):
+        walker_kwargs = {
+            "follow_symlinks": follow_symlinks,
+            "max_depth": max_depth,
+            "on_issue": on_issue,
+            "should_skip": should_skip,
+        }
+        if should_descend is not None:
+            walker_kwargs["should_descend"] = should_descend
+
+        for index, entry in enumerate(walk_directory(root_path, **walker_kwargs), start=1):
+            if cancel_event.is_set():
+                break
+            yield entry
+            if index % 25 == 0:
+                await asyncio.sleep(0)
+
+    def _is_dev_artifact_directory(self, path: Path) -> bool:
+        name = path.name.lower()
+        if name in DEV_ARTIFACT_DIRS:
+            return True
+        return name.startswith("android-") and any(part.lower() == "platforms" for part in path.parts)
+
+    async def _entry_for_directory_artifact(
+        self,
+        entry: ScanEntry,
+        cancel_event: asyncio.Event,
+    ) -> ScanEntry:
+        size = self._directory_size(entry.path, cancel_event)
+        return ScanEntry(
+            path=entry.path,
+            size=size,
+            mtime=entry.mtime,
+            is_dir=True,
+            is_file=False,
+            is_symlink=entry.is_symlink,
+        )
+
+    def _directory_size(self, path: Path, cancel_event: asyncio.Event | None = None) -> int:
+        total = 0
+        scanned_files = 0
+        started_at = time.monotonic()
+        for root, _, files in os.walk(path):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if time.monotonic() - started_at > 1.25:
+                break
+            for filename in files:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                if scanned_files >= 20_000:
+                    break
+                try:
+                    total += (Path(root) / filename).stat().st_size
+                except OSError:
+                    continue
+                scanned_files += 1
+            if scanned_files >= 20_000:
+                break
+        return total
+
+    def _artifact_metadata(
+        self,
+        path: Path,
+        score: int,
+        classification: str,
+    ) -> dict[str, Any]:
+        name = path.name.lower()
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        last_git_commit_at: datetime | None = None
+        tool = "filesystem"
+        reason = "Scored from age, version, process, project, and local cleanup rules."
+        recovery_hint = "Restore from Recycle Bin when recycled, or recreate from the source project."
+        fingerprint = ""
+
+        if name == "node_modules":
+            tool = "node"
+            project = path.parent
+            last_git_commit_at = self._last_git_commit_at(project)
+            reference_date = last_git_commit_at or modified_at
+            inactive_days = (_utc_now() - reference_date).days
+            reason = (
+                f"Node dependency folder for {project.name}; "
+                f"project activity is {inactive_days} days old."
+            )
+            recovery_hint = "Run npm install, pnpm install, or yarn install in the project folder."
+            fingerprint = self._package_fingerprint(project / "package-lock.json", project / "pnpm-lock.yaml", project / "yarn.lock")
+            if inactive_days >= DEAD_PROJECT_DAYS:
+                score = max(score, 92)
+                classification = "critical"
+            else:
+                score = max(score, 58)
+                classification = "optional"
+        elif name in {".venv", "venv", "env", ".tox"}:
+            tool = "python"
+            reason = f"Python virtual environment for {path.parent.name}; packages can be recreated from project manifests."
+            recovery_hint = "Recreate the environment with python -m venv and reinstall from requirements, pyproject, or lock files."
+            fingerprint = self._package_fingerprint(path / "pyvenv.cfg", path.parent / "requirements.txt", path.parent / "pyproject.toml")
+            score = max(score, 70)
+            classification = "optional"
+        elif name == "__pycache__":
+            tool = "python"
+            reason = "Python bytecode cache generated automatically by the interpreter."
+            recovery_hint = "Python recreates this cache automatically when modules are imported again."
+            score = max(score, 94)
+            classification = "critical"
+        elif name.startswith("android-"):
+            tool = "android"
+            reason = "Android SDK platform folder; keep it only when local Gradle projects target this API level."
+            recovery_hint = "Reinstall the API level later from Android Studio SDK Manager or sdkmanager."
+            score = max(score, 66)
+            classification = "optional"
+
+        recommendation = _derive_recommendation(classification)  # type: ignore[arg-type]
+        confidence = _derive_confidence(score)
+        return {
+            "score": score,
+            "classification": classification,
+            "tool": tool,
+            "reason": reason,
+            "ai_explanation": self._local_advice(path, tool, recommendation, reason, recovery_hint),
+            "cleanup_preset": _preset_for_recommendation(recommendation, confidence),
+            "recovery_hint": recovery_hint,
+            "last_git_commit_at": last_git_commit_at,
+            "package_fingerprint": fingerprint,
+        }
+
+    def _last_git_commit_at(self, project_path: Path) -> datetime | None:
+        if not (project_path / ".git").exists():
+            return None
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project_path), "log", "-1", "--format=%ct"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=3,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0 or not result.stdout.strip().isdigit():
+            return None
+        return datetime.fromtimestamp(int(result.stdout.strip()), tz=timezone.utc)
+
+    def _package_fingerprint(self, *paths: Path) -> str:
+        digest = hashlib.sha256()
+        found = False
+        for path in paths:
+            if not path.exists() or not path.is_file():
+                continue
+            found = True
+            try:
+                digest.update(path.name.encode("utf-8"))
+                digest.update(path.read_bytes())
+            except OSError:
+                continue
+        return digest.hexdigest()[:16] if found else ""
+
+    def _local_advice(
+        self,
+        path: Path,
+        tool: str,
+        recommendation: str,
+        reason: str,
+        recovery_hint: str,
+    ) -> str:
+        target = "folder" if path.is_dir() else "file"
+        safety = "safe to delete" if recommendation == "delete" else "worth reviewing"
+        return (
+            f"This {tool} {target} is {safety}. {reason} "
+            f"If removed, the related tool may need to rebuild or reinstall it. "
+            f"Recovery: {recovery_hint}"
+        )
+
+    async def _process_entry(
         self,
         runtime: ScanRuntime,
         drive_path: str,
@@ -620,6 +972,13 @@ class ScanManager:
     ) -> dict[str, ScanResult | FileIndexEntry | None]:
         scored_item = score_item(entry, [entry])
         adjusted_item, rule_matches = self._apply_rules(scored_item)
+        metadata = self._artifact_metadata(
+            entry.path,
+            adjusted_item.total_score,
+            adjusted_item.classification,
+        )
+        total_score = metadata["score"]
+        classification = metadata["classification"]
 
         is_hidden = self._is_hidden(entry.path)
         bucket = self._primary_bucket(entry.path, runtime.enabled_tools, runtime.tool_paths, is_hidden)
@@ -637,25 +996,45 @@ class ScanManager:
         runtime.session.summary.totalFiles += 1
         runtime.session.summary.totalSize += entry.size
 
-        recommendation = _derive_recommendation(adjusted_item.classification)
+        recommendation = _derive_recommendation(classification)
+        confidence = _derive_confidence(total_score)
         if recommendation == "delete":
             runtime.session.summary.deletableFiles += 1
             runtime.session.summary.deletableSize += entry.size
         elif recommendation == "review":
             runtime.session.summary.reviewFiles += 1
+        if metadata["cleanup_preset"] == "quick":
+            runtime.session.summary.quickCleanSize += entry.size
+        if metadata["cleanup_preset"] in {"quick", "deep"}:
+            runtime.session.summary.deepCleanSize += entry.size
+        runtime.session.summary.nuclearCleanSize += entry.size
+        if metadata["tool"] == "node" and entry.path.name.lower() == "node_modules":
+            runtime.session.summary.deadProjects += 1
+        if metadata["package_fingerprint"]:
+            runtime.session.summary.duplicateEnvironments += 1
+        if metadata["tool"] == "android":
+            runtime.session.summary.unusedSdkItems += 1
 
         live_result = ScanResultResponse(
             id=f"{runtime.session.id}:{runtime.processed_index + 1}",
             path=str(entry.path),
             size=entry.size,
-            score=adjusted_item.total_score,
-            classification=adjusted_item.classification,
+            score=total_score,
+            classification=classification,
             recommendation=recommendation,
-            confidence=_derive_confidence(adjusted_item.total_score),
+            confidence=confidence,
             modifiedAt=datetime.fromtimestamp(entry.mtime, tz=timezone.utc),
             bucket=bucket,
             drive=drive_path,
             isHidden=is_hidden,
+            isDirectory=entry.is_dir,
+            tool=metadata["tool"],
+            reason=metadata["reason"],
+            aiExplanation=metadata["ai_explanation"],
+            cleanupPreset=metadata["cleanup_preset"],
+            recoveryHint=metadata["recovery_hint"],
+            lastGitCommitAt=metadata["last_git_commit_at"],
+            packageFingerprint=metadata["package_fingerprint"],
             extension=entry.path.suffix.lower() or None,
         )
         runtime.recent_findings.appendleft(live_result)
@@ -668,9 +1047,16 @@ class ScanManager:
             file_path=str(entry.path),
             file_size=entry.size,
             file_mtime=entry.mtime,
-            is_directory=False,
-            total_score=adjusted_item.total_score,
-            classification=adjusted_item.classification,
+            is_directory=entry.is_dir,
+            total_score=total_score,
+            classification=classification,
+            tool=metadata["tool"],
+            reason=metadata["reason"],
+            ai_explanation=metadata["ai_explanation"],
+            cleanup_preset=metadata["cleanup_preset"],
+            recovery_hint=metadata["recovery_hint"],
+            last_git_commit_at=metadata["last_git_commit_at"],
+            package_fingerprint=metadata["package_fingerprint"],
             age_score=adjusted_item.signals["age"].score,
             age_reason=adjusted_item.signals["age"].reason,
             version_score=adjusted_item.signals["version"].score,
@@ -696,14 +1082,36 @@ class ScanManager:
         runtime.issue_buffer.clear()
 
     async def _finalize_scan(self, runtime: ScanRuntime) -> None:
+        # Detect dead projects
+        try:
+            search_locations = await asyncio.to_thread(get_dead_project_search_locations)
+            dead_projects = await asyncio.to_thread(find_dead_projects, search_locations)
+            
+            runtime.dead_projects = [
+                DeadProjectResponse(
+                    path=str(project.path),
+                    artifactSize=project.artifact_size,
+                    lastCommitAt=project.last_commit,
+                    daysInactive=project.days_inactive,
+                    artifactType=project.artifact_type,
+                )
+                for project in dead_projects
+            ]
+            runtime.session.deadProjects = runtime.dead_projects
+        except Exception as error:
+            logger.warning("Error detecting dead projects", error=str(error))
+            runtime.dead_projects = []
+        
         async with get_session() as session:
             row = await session.get(ScanSession, int(runtime.session.id))
             if row is None:
                 return
             row.total_files_scanned = runtime.session.summary.totalFiles
             row.total_size_scanned = runtime.session.summary.totalSize
+            row.total_size_found = runtime.session.summary.deepCleanSize
             started = runtime.session.startTime or _utc_now()
             ended = runtime.session.endTime or _utc_now()
+            row.completed_at = ended
             row.scan_duration_seconds = max((ended - started).total_seconds(), 0.0)
             session.add(row)
             await session.commit()
@@ -720,15 +1128,32 @@ class ScanManager:
             runtime.newest_file = result
 
     def _refresh_session_view(self, runtime: ScanRuntime) -> None:
-        progress = min((runtime.session.bytesScanned / max(runtime.total_target_bytes, 1)) * 100, 99.5)
+        byte_progress = min(
+            (runtime.session.bytesScanned / max(runtime.total_target_bytes, 1)) * 100,
+            99.5,
+        )
+        activity_progress = 0.0
+        if runtime.session.processedFiles > 0:
+            activity_progress = min(
+                (runtime.session.processedFiles / (runtime.session.processedFiles + 1000)) * 90,
+                95,
+            )
+        progress = max(byte_progress, activity_progress)
         if runtime.session.status == "completed":
             progress = 100
         runtime.session.progress = round(progress, 2)
         elapsed = max(time.monotonic() - runtime.started_monotonic, 0.001)
-        if runtime.session.status == "scanning" and runtime.session.bytesScanned > 0:
+        if (
+            runtime.session.status == "scanning"
+            and runtime.session.bytesScanned > 0
+            and byte_progress >= 1
+        ):
             remaining = max(runtime.total_target_bytes - runtime.session.bytesScanned, 0)
             rate = runtime.session.bytesScanned / elapsed
-            runtime.session.etaSeconds = int(remaining / rate) if rate > 0 else None
+            eta_seconds = int(remaining / rate) if rate > 0 else None
+            runtime.session.etaSeconds = (
+                eta_seconds if eta_seconds is not None and eta_seconds <= 86_400 else None
+            )
         else:
             runtime.session.etaSeconds = None
         runtime.session.driveSummaries = [
@@ -772,6 +1197,16 @@ class ScanManager:
             deletableFiles=sum(1 for result in results if result.recommendation == "delete"),
             deletableSize=sum(result.size for result in results if result.recommendation == "delete"),
             reviewFiles=sum(1 for result in results if result.recommendation == "review"),
+            quickCleanSize=sum(result.size for result in results if result.cleanupPreset == "quick"),
+            deepCleanSize=sum(result.size for result in results if result.cleanupPreset in {"quick", "deep"}),
+            nuclearCleanSize=sum(result.size for result in results),
+            deadProjects=sum(
+                1
+                for result in results
+                if result.tool == "node" and Path(result.path).name.lower() == "node_modules"
+            ),
+            duplicateEnvironments=self._duplicate_fingerprint_count(results),
+            unusedSdkItems=sum(1 for result in results if result.tool in {"android", "python"} and result.recommendation != "keep"),
         )
         drive_map: dict[str, MutableDriveSummary] = {}
         bucket_map: dict[str, MutableBucketSummary] = {}
@@ -872,8 +1307,23 @@ class ScanManager:
             bucket=bucket,
             drive=drive,
             isHidden=is_hidden,
+            isDirectory=row.is_directory,
+            tool=row.tool,
+            reason=row.reason,
+            aiExplanation=row.ai_explanation,
+            cleanupPreset=row.cleanup_preset,  # type: ignore[arg-type]
+            recoveryHint=row.recovery_hint,
+            lastGitCommitAt=row.last_git_commit_at,
+            packageFingerprint=row.package_fingerprint,
             extension=path.suffix.lower() or None,
         )
+
+    def _duplicate_fingerprint_count(self, results: list[ScanResultResponse]) -> int:
+        counts: dict[str, int] = {}
+        for result in results:
+            if result.packageFingerprint:
+                counts[result.packageFingerprint] = counts.get(result.packageFingerprint, 0) + 1
+        return sum(count for count in counts.values() if count > 1)
 
     def _build_index_entry(self, runtime: ScanRuntime, entry: ScanEntry) -> FileIndexEntry | None:
         if entry.size > TEXT_INDEX_LIMIT_BYTES:
@@ -942,6 +1392,10 @@ class ScanManager:
 
     def _is_excluded(self, path: Path, exclusions: list[Path]) -> bool:
         return any(_is_under_path(path, exclusion) for exclusion in exclusions)
+
+    def _is_noisy_scan_path(self, path: Path) -> bool:
+        name = path.name.lower()
+        return any(name.startswith(prefix) for prefix in NOISY_SKIP_PREFIXES)
 
     def _primary_bucket(
         self,
@@ -1046,6 +1500,13 @@ class ScanManager:
             is_file=file_path.is_file(),
             is_symlink=file_path.is_symlink(),
         )
+
+    def _get_advisor(self):
+        if self._advisor is None:
+            from ..ai.advisor import AIAdvisor
+
+            self._advisor = AIAdvisor()
+        return self._advisor
 
     async def _probe_ollama(self, base_url: str) -> None:
         import urllib.request

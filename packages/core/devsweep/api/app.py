@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import os
 import shutil
@@ -18,6 +19,34 @@ from .schemas import (
     ScanRequest,
 )
 from .services import scan_manager
+
+
+def _install_windows_disconnect_filter() -> None:
+    if os.name != "nt":
+        return
+
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+
+    def handle_exception(loop, context) -> None:
+        exception = context.get("exception")
+        if (
+            isinstance(exception, ConnectionResetError)
+            and getattr(exception, "winerror", None) == 10054
+        ):
+            return
+        handle = str(context.get("handle", ""))
+        if (
+            isinstance(exception, AssertionError)
+            and "BaseProactorEventLoop._start_serving" in handle
+        ):
+            return
+        if previous_handler is not None:
+            previous_handler(loop, context)
+            return
+        loop.default_exception_handler(context)
+
+    loop.set_exception_handler(handle_exception)
 
 
 def _send_to_recycle_bin(path: Path) -> None:
@@ -59,6 +88,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup() -> None:
+        _install_windows_disconnect_filter()
         await scan_manager.startup()
 
     @app.get("/health")
@@ -121,7 +151,10 @@ def create_app() -> FastAPI:
 
     @app.get("/settings")
     async def get_settings() -> AppSettings:
-        return await scan_manager.load_settings()
+        try:
+            return await asyncio.wait_for(scan_manager.load_settings(), timeout=2)
+        except Exception:
+            return AppSettings()
 
     @app.put("/settings")
     async def update_settings(settings: AppSettings) -> AppSettings:

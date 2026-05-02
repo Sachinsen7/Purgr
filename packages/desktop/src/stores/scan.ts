@@ -21,6 +21,7 @@ export const $isScanning = computed(
 )
 
 let pollingHandle: number | undefined
+let refreshFailures = 0
 
 const emptySummary = (): ScanSummary => ({
     totalFiles: 0,
@@ -30,6 +31,12 @@ const emptySummary = (): ScanSummary => ({
     deletableFiles: 0,
     deletableSize: 0,
     reviewFiles: 0,
+    quickCleanSize: 0,
+    deepCleanSize: 0,
+    nuclearCleanSize: 0,
+    deadProjects: 0,
+    duplicateEnvironments: 0,
+    unusedSdkItems: 0,
 })
 
 const buildPendingSession = (request: ScanRequest): ScanSession => ({
@@ -64,13 +71,17 @@ function stopPolling() {
     }
 }
 
-export async function loadHistory() {
+export async function loadHistory(options?: { hydrateLatest?: boolean }) {
     $isLoadingHistory.set(true)
     $historyError.set(null)
     try {
         const sessions = await IPC.getHistoryScans()
         $scanHistory.set(sessions)
-        if (!$selectedHistory.get() && sessions.length > 0) {
+        if (
+            options?.hydrateLatest &&
+            !$selectedHistory.get() &&
+            sessions.length > 0
+        ) {
             await loadHistoryScan(sessions[0].id)
         }
     } catch (error) {
@@ -107,6 +118,7 @@ export async function loadHistoryScan(scanId: string) {
 
 async function refreshScan(scanId: string) {
     const session = await IPC.getScanStatus(scanId)
+    refreshFailures = 0
     $currentScan.set(session)
     $scanError.set(session.status === 'error' ? session.error ?? 'Scan failed.' : null)
     if (session.status === 'completed' || session.status === 'error') {
@@ -123,12 +135,16 @@ function startPolling(scanId: string) {
     pollingHandle = window.setInterval(() => {
         void refreshScan(scanId).catch((error) => {
             console.error('Failed to poll scan status:', error)
-            $scanError.set(
-                error instanceof Error
-                    ? error.message
-                    : 'Failed to refresh scan progress.'
-            )
-            stopPolling()
+            refreshFailures += 1
+            $scanError.set('Reconnecting to scan progress...')
+            if (refreshFailures >= 5) {
+                $scanError.set(
+                    error instanceof Error
+                        ? error.message
+                        : 'Failed to refresh scan progress.'
+                )
+                stopPolling()
+            }
         })
     }, 1000)
 }
@@ -139,6 +155,7 @@ export async function beginScan(request: ScanRequest) {
     $currentScan.set(buildPendingSession(request))
     try {
         const scanId = await IPC.startScan(request)
+        refreshFailures = 0
         await refreshScan(scanId)
         startPolling(scanId)
         return scanId

@@ -7,10 +7,13 @@ from sqlmodel import Field, Relationship, SQLModel
 class ScanSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
     root_path: str = ""
-    root_paths: str
+    root_paths: str = "[]"
     total_files_scanned: int = 0
     total_size_scanned: int = 0
+    total_size_found: int = 0
+    total_size_cleaned: int = 0
     scan_duration_seconds: float = 0.0
 
     results: List["ScanResult"] = Relationship(back_populates="session")
@@ -29,6 +32,13 @@ class ScanResult(SQLModel, table=True):
     is_directory: bool
     total_score: int
     classification: str
+    tool: str = "filesystem"
+    reason: str = ""
+    ai_explanation: str = ""
+    cleanup_preset: str = "deep"
+    recovery_hint: str = ""
+    last_git_commit_at: Optional[datetime] = None
+    package_fingerprint: str = ""
     age_score: int
     age_reason: str
     version_score: int

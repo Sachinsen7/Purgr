@@ -249,6 +249,10 @@ python -m devsweep.api
 
 The backend starts on `http://127.0.0.1:9231`.
 
+### Deploy the backend
+
+For container and cloud deployment steps, see [packages/core/DEPLOYMENT.md](packages/core/DEPLOYMENT.md).
+
 #### Web preview
 
 ```powershell

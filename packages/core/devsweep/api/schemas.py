@@ -12,6 +12,7 @@ ScanPhase = Literal["preparing", "scanning", "finalizing", "completed", "error"]
 Classification = Literal["safe", "optional", "critical"]
 Recommendation = Literal["keep", "delete", "review"]
 CleanupMode = Literal["recycle", "permanent"]
+CleanupPreset = Literal["quick", "deep", "nuclear"]
 
 
 class ScanRequest(BaseModel):
@@ -32,6 +33,14 @@ class ScanResultResponse(BaseModel):
     bucket: str
     drive: str
     isHidden: bool
+    isDirectory: bool = False
+    tool: str = "filesystem"
+    reason: str = ""
+    aiExplanation: str = ""
+    cleanupPreset: CleanupPreset = "deep"
+    recoveryHint: str = ""
+    lastGitCommitAt: datetime | None = None
+    packageFingerprint: str = ""
     extension: str | None = None
 
 
@@ -57,6 +66,15 @@ class ScanIssueResponse(BaseModel):
     message: str
 
 
+class DeadProjectResponse(BaseModel):
+    """Represents an inactive development project detected during scan."""
+    path: str
+    artifactSize: int
+    lastCommitAt: datetime | None = None
+    daysInactive: int
+    artifactType: str
+
+
 class ScanSummaryResponse(BaseModel):
     totalFiles: int = 0
     totalSize: int = 0
@@ -65,6 +83,12 @@ class ScanSummaryResponse(BaseModel):
     deletableFiles: int = 0
     deletableSize: int = 0
     reviewFiles: int = 0
+    quickCleanSize: int = 0
+    deepCleanSize: int = 0
+    nuclearCleanSize: int = 0
+    deadProjects: int = 0
+    duplicateEnvironments: int = 0
+    unusedSdkItems: int = 0
 
 
 class ScanSessionResponse(BaseModel):
@@ -89,12 +113,14 @@ class ScanSessionResponse(BaseModel):
     oldestFile: ScanResultResponse | None = None
     newestFile: ScanResultResponse | None = None
     recentFindings: list[ScanResultResponse] = Field(default_factory=list)
+    deadProjects: list[DeadProjectResponse] = Field(default_factory=list)
     issues: list[ScanIssueResponse] = Field(default_factory=list)
 
 
 class ScanDetailsResponse(BaseModel):
     session: ScanSessionResponse
     results: list[ScanResultResponse] = Field(default_factory=list)
+    deadProjects: list[DeadProjectResponse] = Field(default_factory=list)
 
 
 class DriveInfoResponse(BaseModel):
@@ -120,6 +146,14 @@ class SystemOverviewResponse(BaseModel):
     historyCount: int = 0
     activeScanId: str | None = None
     lastCompletedScanId: str | None = None
+    
+    # Last scan statistics (for dashboard)
+    lastScanDate: datetime | None = None
+    totalSizeFound: int = 0  # Total size identified in last scan
+    safeToDelete: int = 0    # Safe classification
+    optional: int = 0        # Optional classification
+    critical: int = 0        # Critical classification (don't delete)
+    totalCleanedLifetime: int = 0  # Total bytes deleted across all time
 
 
 class AssistantQueryRequest(BaseModel):
@@ -195,8 +229,18 @@ class ScanningSettings(BaseModel):
     toolsets: ToolsetSettings = Field(default_factory=ToolsetSettings)
 
 
+def _default_exclusions() -> list[str]:
+    """Return default system exclusions (protected/inaccessible folders)."""
+    return [
+        "$Recycle.bin",
+        "C:\\$Recycle.bin",
+        "C:\\System Volume Information",
+        "C:\\ProgramData\\Application Data",
+    ]
+
+
 class AppSettings(BaseModel):
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
     ai: AISettings = Field(default_factory=AISettings)
     scanning: ScanningSettings = Field(default_factory=ScanningSettings)
-    exclusions: list[str] = Field(default_factory=list)
+    exclusions: list[str] = Field(default_factory=_default_exclusions)

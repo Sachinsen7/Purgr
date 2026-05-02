@@ -48,7 +48,7 @@ export default function Settings() {
     const [isTesting, setIsTesting] = createSignal(false)
 
     onMount(async () => {
-        await loadHistory()
+        void loadHistory()
         try {
             const [settingsResult, overviewResult, infoResult] =
                 await Promise.allSettled([

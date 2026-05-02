@@ -10,6 +10,7 @@ import {
 import { DesktopShell } from '../ui/DesktopShell'
 
 type FilterKey = 'all' | 'delete' | 'review' | 'keep'
+type PresetKey = 'quick' | 'deep' | 'nuclear'
 
 const formatBytes = (bytes: number) => {
     if (bytes <= 0) return '0 B'
@@ -27,19 +28,25 @@ export default function Results() {
     const selectedHistory = useStore($selectedHistory)
 
     const [filter, setFilter] = createSignal<FilterKey>('all')
+    const [preset, setPreset] = createSignal<PresetKey>('deep')
     const [selectedIds, setSelectedIds] = createSignal<string[]>([])
     const [deleting, setDeleting] = createSignal<'recycle' | 'permanent' | null>(
         null
     )
 
     onMount(async () => {
-        await loadHistory()
+        await loadHistory({ hydrateLatest: true })
     })
 
     const results = createMemo(() => selectedHistory()?.results ?? [])
     const filteredResults = createMemo(() => {
-        if (filter() === 'all') return results()
-        return results().filter((item) => item.recommendation === filter())
+        const presetFiltered = results().filter((item) => {
+            if (preset() === 'quick') return item.cleanupPreset === 'quick'
+            if (preset() === 'deep') return item.cleanupPreset !== 'nuclear'
+            return true
+        })
+        if (filter() === 'all') return presetFiltered
+        return presetFiltered.filter((item) => item.recommendation === filter())
     })
     const selectedResults = createMemo(() =>
         filteredResults().filter((item) => selectedIds().includes(item.id))
@@ -194,6 +201,32 @@ export default function Results() {
                                     </div>
 
                                     <div class="mt-6 grid gap-4 xl:grid-cols-[1fr_1fr]">
+                                        <div class="subtle-panel p-4 xl:col-span-2">
+                                            <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-soft)]">
+                                                One-click presets
+                                            </p>
+                                            <div class="mt-3 grid gap-3 md:grid-cols-3">
+                                                <For each={['quick', 'deep', 'nuclear'] as const}>
+                                                    {(value) => (
+                                                        <button
+                                                            class={`preset-strip text-left ${preset() === value ? 'border-[var(--accent)]' : ''}`}
+                                                            onClick={() => setPreset(value)}
+                                                        >
+                                                            <span class="capitalize">{value}</span>
+                                                            <strong>
+                                                                {formatBytes(
+                                                                    value === 'quick'
+                                                                        ? details().session.summary.quickCleanSize
+                                                                        : value === 'deep'
+                                                                          ? details().session.summary.deepCleanSize
+                                                                          : details().session.summary.nuclearCleanSize
+                                                                )}
+                                                            </strong>
+                                                        </button>
+                                                    )}
+                                                </For>
+                                            </div>
+                                        </div>
                                         <div class="subtle-panel p-4">
                                             <p class="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-soft)]">
                                                 Drive totals
@@ -377,10 +410,14 @@ export default function Results() {
                                                                     {result.path}
                                                                 </p>
                                                                 <p class="mt-1 text-xs text-[var(--text-muted)]">
+                                                                    {result.tool} ·{' '}
                                                                     {result.bucket} ·{' '}
                                                                     {result.recommendation}{' '}
                                                                     · score{' '}
                                                                     {result.score}
+                                                                </p>
+                                                                <p class="mt-2 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
+                                                                    {result.aiExplanation || result.reason}
                                                                 </p>
                                                             </div>
                                                         </label>

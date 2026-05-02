@@ -240,8 +240,13 @@ struct AppState {
 
 impl AppState {
     fn new() -> Self {
+        let client = Client::builder()
+            .pool_max_idle_per_host(0)
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("failed to build HTTP client");
         Self {
-            client: Client::new(),
+            client,
             sidecar: Mutex::new(None),
             base_url: std::env::var("DEVSWEEP_API_BASE_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:9231".to_string()),
@@ -300,7 +305,17 @@ fn spawn_sidecar() -> Result<Child, String> {
             .join("..")
             .join("..")
             .join("core");
-        return Command::new("python")
+        let venv_python = if cfg!(target_os = "windows") {
+            core_dir.join(".venv").join("Scripts").join("python.exe")
+        } else {
+            core_dir.join(".venv").join("bin").join("python")
+        };
+        let python_bin = if venv_python.exists() {
+            venv_python
+        } else {
+            PathBuf::from("python")
+        };
+        return Command::new(python_bin)
             .arg("-m")
             .arg("devsweep.api")
             .current_dir(core_dir)

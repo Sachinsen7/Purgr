@@ -5,6 +5,14 @@ from functools import lru_cache
 from pathlib import Path
 
 
+def _env_value(*names: str, default: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return default
+
+
 class Settings:
     """Application settings resolved from the local environment."""
 
@@ -18,11 +26,13 @@ class Settings:
 
         self.database_path = str(self.user_data_dir / "devsweep.db")
         self.settings_path = str(self.user_data_dir / "settings.json")
-        self.ollama_base_url = os.environ.get("DEVSWEEP_OLLAMA_BASE_URL", "http://localhost:11434")
+        self.ollama_base_url = os.environ.get(
+            "DEVSWEEP_OLLAMA_BASE_URL", "http://localhost:11434"
+        )
         self.ai_provider = "ollama"
         self.ai_model = os.environ.get("DEVSWEEP_AI_MODEL", "llama3.2")
-        self.api_host = os.environ.get("DEVSWEEP_API_HOST", "127.0.0.1")
-        self.api_port = int(os.environ.get("DEVSWEEP_API_PORT", "9231"))
+        self.api_host = _env_value("DEVSWEEP_API_HOST", "HOST", default="127.0.0.1")
+        self.api_port = int(_env_value("DEVSWEEP_API_PORT", "PORT", default="9231"))
         self.log_level = os.environ.get("DEVSWEEP_LOG_LEVEL", "INFO")
 
     @staticmethod
